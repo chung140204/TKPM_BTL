@@ -685,3 +685,161 @@ exports.getDashboardOverview = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Lấy hoạt động gần đây
+ * @route   GET /api/statistics/recent-activities
+ * @access  Private
+ */
+exports.getRecentActivities = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5; // Default 5 per page
+    const skip = (page - 1) * limit;
+
+    const activities = [];
+
+    // 1. Lấy FridgeItems mới được thêm (trong 7 ngày gần nhất)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const recentFridgeItems = await FridgeItem.find({
+      userId: userId,
+      createdAt: { $gte: sevenDaysAgo }
+    })
+      .populate('foodItemId', 'name')
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    recentFridgeItems.forEach(item => {
+      if (item.foodItemId) {
+        activities.push({
+          type: 'fridge_add',
+          action: `Thêm ${item.foodItemId.name} vào tủ lạnh`,
+          timestamp: item.createdAt,
+          icon: 'Package'
+        });
+      }
+    });
+
+    // 2. Lấy ShoppingLists mới được tạo hoặc completed
+    const recentShoppingLists = await ShoppingList.find({
+      userId: userId,
+      $or: [
+        { createdAt: { $gte: sevenDaysAgo } },
+        { completedAt: { $gte: sevenDaysAgo } }
+      ]
+    })
+      .sort({ createdAt: -1, completedAt: -1 })
+      .limit(5);
+
+    recentShoppingLists.forEach(list => {
+      if (list.completedAt && list.completedAt >= sevenDaysAgo) {
+        activities.push({
+          type: 'shopping_complete',
+          action: `Hoàn thành danh sách mua sắm "${list.name}"`,
+          timestamp: list.completedAt,
+          icon: 'ShoppingCart'
+        });
+      } else if (list.createdAt >= sevenDaysAgo) {
+        activities.push({
+          type: 'shopping_create',
+          action: `Tạo danh sách mua sắm "${list.name}"`,
+          timestamp: list.createdAt,
+          icon: 'ShoppingCart'
+        });
+      }
+    });
+
+    // 3. Lấy Notifications về recipe_cooked và các loại khác
+    const recentNotifications = await Notification.find({
+      userId: userId,
+      type: { $in: ['recipe_cooked', 'shopping_update', 'expiry_reminder'] },
+      createdAt: { $gte: sevenDaysAgo }
+    })
+      .populate('relatedId')
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    recentNotifications.forEach(notif => {
+      if (notif.message) {
+        let icon = 'Bell';
+        if (notif.type === 'recipe_cooked') {
+          icon = 'Utensils';
+        } else if (notif.type === 'shopping_update') {
+          icon = 'ShoppingCart';
+        } else if (notif.type === 'expiry_reminder') {
+          icon = 'AlertTriangle';
+        }
+        activities.push({
+          type: notif.type,
+          action: notif.message,
+          timestamp: notif.createdAt,
+          icon: icon
+        });
+      }
+    });
+
+    // 4. Sort tất cả activities theo timestamp (mới nhất trước)
+    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // 5. Calculate pagination
+    const totalCount = activities.length;
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // 6. Format và paginate
+    const paginatedActivities = activities.slice(skip, skip + limit);
+    const formattedActivities = paginatedActivities.map(activity => {
+      const now = new Date();
+      const timestamp = new Date(activity.timestamp);
+      const diffMs = now - timestamp;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      let timeAgo = '';
+      if (diffMins < 1) {
+        timeAgo = 'Vừa xong';
+      } else if (diffMins < 60) {
+        timeAgo = `${diffMins} phút trước`;
+      } else if (diffHours < 24) {
+        timeAgo = `${diffHours} giờ trước`;
+      } else if (diffDays === 1) {
+        timeAgo = '1 ngày trước';
+      } else {
+        timeAgo = `${diffDays} ngày trước`;
+      }
+
+      return {
+        action: activity.action,
+        time: timeAgo,
+        type: activity.type,
+        icon: activity.icon,
+        timestamp: activity.timestamp
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        activities: formattedActivities,
+        pagination: {
+          page: page,
+          limit: limit,
+          totalCount: totalCount,
+          totalPages: totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error in getRecentActivities:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi lấy hoạt động gần đây',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+

@@ -78,6 +78,17 @@ export async function getDashboardOverview() {
   }
 }
 
+// Recent Activities API
+export async function getRecentActivities(page = 1, limit = 5) {
+  try {
+    const response = await apiRequest(`/statistics/recent-activities?page=${page}&limit=${limit}`)
+    return response
+  } catch (error) {
+    console.error('Error fetching recent activities:', error)
+    throw error
+  }
+}
+
 // Statistics APIs
 export async function getPurchaseStatistics(period = 'month') {
   try {

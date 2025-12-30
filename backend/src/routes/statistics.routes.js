@@ -7,6 +7,7 @@ const auth = require('../middleware/auth.middleware');
 router.use(auth);
 
 router.get('/dashboard', statisticsController.getDashboardOverview);
+router.get('/recent-activities', statisticsController.getRecentActivities);
 router.get('/purchases', statisticsController.getPurchaseStatistics);
 router.get('/waste', statisticsController.getWasteStatistics);
 router.get('/consumption', statisticsController.getConsumptionStatistics);

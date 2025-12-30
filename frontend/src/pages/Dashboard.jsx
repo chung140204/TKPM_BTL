@@ -1,17 +1,23 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
+import { Button } from "@/components/ui/Button"
 import { 
   Refrigerator, 
   AlertTriangle, 
   ShoppingCart, 
   TrendingDown,
   Calendar,
-  Loader2
+  Loader2,
+  Package,
+  Utensils,
+  Bell,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
 import { mockDashboardStats, mockWasteData, mockCategoryData } from "@/data/mockData"
-import { getDashboardOverview } from "@/utils/api"
+import { getDashboardOverview, getRecentActivities } from "@/utils/api"
 
 const COLORS = ["#10b981", "#ef4444", "#f59e0b", "#3b82f6", "#8b5cf6"]
 
@@ -19,6 +25,15 @@ export function Dashboard() {
   const [dashboardData, setDashboardData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [activities, setActivities] = useState([])
+  const [activitiesLoading, setActivitiesLoading] = useState(true)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState({
+    totalPages: 1,
+    totalCount: 0,
+    hasNextPage: false,
+    hasPrevPage: false
+  })
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -71,6 +86,61 @@ export function Dashboard() {
 
     fetchDashboardData()
   }, [])
+
+  // Fetch recent activities
+  useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        setActivitiesLoading(true)
+        const response = await getRecentActivities(currentPage, 5)
+        if (response.success && response.data) {
+          setActivities(response.data.activities || [])
+          if (response.data.pagination) {
+            setPagination(response.data.pagination)
+          }
+        } else {
+          // Fallback to mock data
+          setActivities([
+            { action: "Thêm cà chua vào tủ lạnh", time: "2 giờ trước", type: "fridge_add", icon: "Package" },
+            { action: "Tạo danh sách mua sắm mới", time: "5 giờ trước", type: "shopping_create", icon: "ShoppingCart" },
+            { action: "Hoàn thành nấu món Cơm rang thập cẩm", time: "1 ngày trước", type: "recipe_cook", icon: "Utensils" },
+          ])
+          setPagination({
+            totalPages: 1,
+            totalCount: 3,
+            hasNextPage: false,
+            hasPrevPage: false
+          })
+        }
+      } catch (err) {
+        console.error('Error fetching activities:', err)
+        // Fallback to mock data
+        setActivities([
+          { action: "Thêm cà chua vào tủ lạnh", time: "2 giờ trước", type: "fridge_add", icon: "Package" },
+          { action: "Tạo danh sách mua sắm mới", time: "5 giờ trước", type: "shopping_create", icon: "ShoppingCart" },
+          { action: "Hoàn thành nấu món Cơm rang thập cẩm", time: "1 ngày trước", type: "recipe_cook", icon: "Utensils" },
+        ])
+        setPagination({
+          totalPages: 1,
+          totalCount: 3,
+          hasNextPage: false,
+          hasPrevPage: false
+        })
+      } finally {
+        setActivitiesLoading(false)
+      }
+    }
+
+    fetchActivities()
+    
+    // Refresh activities every 30 seconds (only if on first page)
+    if (currentPage === 1) {
+      const interval = setInterval(() => {
+        fetchActivities()
+      }, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [currentPage])
 
   // ALWAYS use dashboardData from API if available (from database)
   // Only use mock data if API completely failed (network error, etc.)
@@ -222,29 +292,135 @@ export function Dashboard() {
       </div>
 
       {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Hoạt động gần đây</CardTitle>
-          <CardDescription>Các thao tác mới nhất trong hệ thống</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {[
-              { action: "Thêm cà chua vào tủ lạnh", time: "2 giờ trước", type: "add" },
-              { action: "Tạo danh sách mua sắm mới", time: "5 giờ trước", type: "create" },
-              { action: "Hoàn thành nấu món Cơm rang thập cẩm", time: "1 ngày trước", type: "cook" },
-            ].map((activity, index) => (
-              <div key={index} className="flex items-center gap-4 border-b pb-4 last:border-0">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                  <Calendar className="h-5 w-5 text-primary" />
+      <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow duration-300">
+        <CardHeader className="bg-gradient-to-r from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border-b">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-3 text-lg">
+                <div className="p-2 rounded-lg bg-purple-500/10">
+                  <Calendar className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{activity.action}</p>
-                  <p className="text-xs text-muted-foreground">{activity.time}</p>
-                </div>
-              </div>
-            ))}
+                Hoạt động gần đây
+              </CardTitle>
+              <CardDescription className="mt-2">Các thao tác mới nhất trong hệ thống</CardDescription>
+            </div>
+            {pagination.totalCount > 0 && (
+              <Badge variant="outline" className="text-xs">
+                {pagination.totalCount} hoạt động
+              </Badge>
+            )}
           </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          {activitiesLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : activities.length > 0 ? (
+            <div className="space-y-4">
+              {activities.map((activity, index) => {
+                // Map icon string to component
+                const iconMap = {
+                  'Package': Package,
+                  'ShoppingCart': ShoppingCart,
+                  'Utensils': Utensils,
+                  'AlertTriangle': AlertTriangle,
+                  'Bell': Bell,
+                  'Calendar': Calendar
+                }
+                const IconComponent = iconMap[activity.icon] || Calendar
+                
+                // Color based on type
+                const colorMap = {
+                  'fridge_add': 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+                  'shopping_create': 'bg-green-500/10 text-green-600 dark:text-green-400',
+                  'shopping_complete': 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                  'recipe_cook': 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                  'recipe_cooked': 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+                  'expiry_reminder': 'bg-red-500/10 text-red-600 dark:text-red-400',
+                  'shopping_update': 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                }
+                const iconColor = colorMap[activity.type] || 'bg-primary/10 text-primary'
+
+                return (
+                  <div 
+                    key={index} 
+                    className="flex items-center gap-4 p-3 rounded-lg border border-border/50 hover:bg-muted/50 transition-colors group"
+                  >
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-full ${iconColor} transition-transform group-hover:scale-110`}>
+                      <IconComponent className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">{activity.action}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{activity.time}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <Calendar className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>Chưa có hoạt động nào</p>
+            </div>
+          )}
+
+          {/* Pagination Controls */}
+          {!activitiesLoading && pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between pt-6 border-t mt-6">
+              <div className="text-sm text-muted-foreground">
+                Trang {pagination.page} / {pagination.totalPages} ({pagination.totalCount} hoạt động)
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={!pagination.hasPrevPage || activitiesLoading}
+                  className="gap-1"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Trước
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (pagination.totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= pagination.totalPages - 2) {
+                      pageNum = pagination.totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        disabled={activitiesLoading}
+                        className="w-8 h-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(prev => Math.min(pagination.totalPages, prev + 1))}
+                  disabled={!pagination.hasNextPage || activitiesLoading}
+                  className="gap-1"
+                >
+                  Sau
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
