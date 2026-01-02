@@ -2,12 +2,11 @@ import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
 import { Button } from "@/components/ui/Button"
-import { CheckCircle2, Circle, Plus, Calendar, Users, Clock } from "lucide-react"
+import { CheckCircle2, Circle, Plus, Calendar, Users, Clock, ShoppingCart, Package } from "lucide-react"
 import { useSearch } from "@/components/Layout/MainLayout"
 import { CreateShoppingListDialog } from "@/components/CreateShoppingListDialog"
 import { getFoodCategory, categoryOrder, categoryIcons } from "@/utils/foodCategories"
-import { getFamilyGroupById } from "@/data/mockFamilyGroups"
-import { getRandomMember } from "@/data/mockFamilyMembers"
+// Removed mock family groups/members - using API data instead
 import { completeShoppingList } from "@/utils/completeShoppingList"
 
 // Format date to DD/MM/YYYY
@@ -129,8 +128,12 @@ export function Shopping() {
   }
 
   const handleToggleItem = (listId, itemId) => {
-    // Get random member for demo (simulate real-time update)
-    const randomMember = getRandomMember()
+    // Prevent editing if list is completed
+    const list = shoppingLists.find(l => l.id === listId)
+    if (list && list.status === "completed") {
+      return
+    }
+
     const now = new Date().toISOString()
 
     setShoppingLists(shoppingLists.map(list => {
@@ -142,9 +145,7 @@ export function Shopping() {
               ? { 
                   ...item, 
                   isBought: !item.isBought,
-                  updatedAt: now, // Timestamp
-                  updatedBy: randomMember.name, // Demo: random member name
-                  updatedByAvatar: randomMember.avatar // Demo: random member avatar
+                  updatedAt: now
                 }
               : item
           )
@@ -211,6 +212,28 @@ export function Shopping() {
       )
     : shoppingLists
 
+  // Sort shopping lists: by status (active > completed > cancelled), then by createdDate descending
+  const sortedLists = [...filteredLists].sort((a, b) => {
+    // Status priority: active (1) > completed (2) > cancelled (3)
+    const statusPriority = {
+      active: 1,
+      completed: 2,
+      cancelled: 3
+    }
+    const priorityA = statusPriority[a.status] || 99
+    const priorityB = statusPriority[b.status] || 99
+
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB
+    }
+
+    // Within same status, sort by creation date descending (newer first)
+    // Use id (timestamp) as proxy for creation date, or plannedDate as fallback
+    const dateA = a.id ? parseInt(a.id) : (a.plannedDate ? new Date(a.plannedDate).getTime() : 0)
+    const dateB = b.id ? parseInt(b.id) : (b.plannedDate ? new Date(b.plannedDate).getTime() : 0)
+    return dateB - dateA
+  })
+
   // Group items by category for a shopping list
   const groupItemsByCategory = (items) => {
     const grouped = {}
@@ -237,7 +260,10 @@ export function Shopping() {
           <h1 className="text-3xl font-bold">Danh sách mua sắm</h1>
           <p className="text-muted-foreground">Quản lý các danh sách mua sắm của bạn</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
+        <Button 
+          onClick={() => setIsDialogOpen(true)}
+          className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg hover:shadow-xl transition-all text-white"
+        >
           <Plus className="mr-2 h-4 w-4" />
           Tạo danh sách mới
         </Button>
@@ -249,38 +275,86 @@ export function Shopping() {
         onAdd={handleAddList}
       />
 
-      {filteredLists.length === 0 ? (
+      {sortedLists.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
-            <p className="text-muted-foreground">
-              {searchQuery
-                ? `Không tìm thấy danh sách nào với từ khóa "${searchQuery}"`
-                : "Chưa có danh sách mua sắm nào"}
-            </p>
+            <div className="space-y-4">
+              <div className="flex justify-center">
+                <Package className="h-16 w-16 text-muted-foreground opacity-50" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold">
+                  {searchQuery
+                    ? `Không tìm thấy danh sách nào`
+                    : "Chưa có danh sách mua sắm nào"}
+                </h3>
+                <p className="text-muted-foreground">
+                  {searchQuery
+                    ? `Không có danh sách nào khớp với từ khóa "${searchQuery}"`
+                    : "Hãy tạo danh sách mua sắm đầu tiên để bắt đầu quản lý việc đi chợ của bạn"}
+                </p>
+                {!searchQuery && (
+                  <Button
+                    onClick={() => setIsDialogOpen(true)}
+                    className="mt-4"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Tạo danh sách mới
+                  </Button>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-2">
-          {filteredLists.map((list) => (
+          {sortedLists.map((list) => (
           <Card key={list.id} className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <CardTitle>{list.name}</CardTitle>
-                    {list.familyGroupId && (() => {
-                      const familyGroup = getFamilyGroupById(list.familyGroupId)
-                      return (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <CardTitle className="text-lg">{list.name}</CardTitle>
+                    {list.familyGroupId && (
                         <Badge variant="outline" className="text-xs">
                           <Users className="h-3 w-3 mr-1" />
-                          {familyGroup ? familyGroup.name : "Đã chia sẻ"}
+                          Đã chia sẻ
                         </Badge>
-                      )
-                    })()}
+                      )}
                   </div>
+                  {/* Show creation date for clarity (especially for duplicate names) */}
+                  {list.id && (() => {
+                    try {
+                      const createdDate = new Date(parseInt(list.id))
+                      if (!isNaN(createdDate.getTime())) {
+                        return (
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                            <Clock className="h-3 w-3" />
+                            <span>Tạo: {formatDate(createdDate.toISOString())}</span>
+                          </div>
+                        )
+                      }
+                    } catch (e) {
+                      // Ignore date parsing errors
+                    }
+                    return null
+                  })()}
                 </div>
-                <Badge variant={list.status === "completed" ? "success" : "default"}>
-                  {list.status === "completed" ? "Hoàn thành" : "Đang mua"}
+                <Badge 
+                  variant={list.status === "completed" ? "success" : "default"}
+                  className={list.status === "active" ? "bg-green-500 hover:bg-green-600 text-white" : ""}
+                >
+                  {list.status === "completed" ? (
+                    <>
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Hoàn thành
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="h-3 w-3 mr-1" />
+                      Đang mua
+                    </>
+                  )}
                 </Badge>
               </div>
               <CardDescription>
@@ -290,7 +364,7 @@ export function Shopping() {
                     <div className="flex items-center gap-1.5 text-xs">
                       <Calendar className="h-3 w-3 text-muted-foreground" />
                       <span className="text-muted-foreground">
-                        {formatDate(list.plannedDate)}
+                        Dự kiến: {formatDate(list.plannedDate)}
                       </span>
                     </div>
                   )}
@@ -325,13 +399,18 @@ export function Shopping() {
                             {categoryItems.map((item) => (
                               <div
                                 key={item.id}
-                                className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-accent transition-colors"
+                                className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
+                                  list.status === "completed" 
+                                    ? "cursor-not-allowed opacity-75" 
+                                    : "cursor-pointer hover:bg-accent"
+                                }`}
                                 onClick={() => list.status === "active" && handleToggleItem(list.id, item.id)}
+                                title={list.status === "completed" ? "Danh sách đã hoàn thành, không thể chỉnh sửa" : ""}
                               >
                                 {item.isBought ? (
                                   <CheckCircle2 className="h-5 w-5 text-green-500" />
                                 ) : (
-                                  <Circle className="h-5 w-5 text-muted-foreground" />
+                                  <Circle className={`h-5 w-5 ${list.status === "completed" ? "text-muted-foreground/50" : "text-muted-foreground"}`} />
                                 )}
                                 <div className="flex-1">
                                   <p
@@ -342,7 +421,7 @@ export function Shopping() {
                                     {item.name}
                                   </p>
                                   <div className="flex items-center gap-2 mt-1">
-                                    <p className="text-xs text-muted-foreground">{item.quantity}</p>
+                                    <p className={`text-xs ${list.status === "completed" ? "text-muted-foreground/70" : "text-muted-foreground"}`}>{item.quantity}</p>
                                     {item.updatedAt && item.updatedBy && (
                                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                                         <Clock className="h-3 w-3" />

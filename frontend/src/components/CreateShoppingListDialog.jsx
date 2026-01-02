@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Label } from "@/components/ui/Label"
 import { Plus, X, Calendar, Users } from "lucide-react"
-import { mockFamilyGroups } from "@/data/mockFamilyGroups"
+// Family groups will be fetched from API in the future
 
 const foodItems = [
   "Cà chua", "Thịt heo", "Cá hồi", "Chuối", "Sữa tươi", "Rau cải",
@@ -135,11 +135,7 @@ export function CreateShoppingListDialog({ isOpen, onClose, onAdd }) {
               className="flex h-10 w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <option value="">Cá nhân</option>
-              {mockFamilyGroups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
+              {/* Family groups will be loaded from API */}
             </select>
           </div>
         </div>
@@ -221,7 +217,10 @@ export function CreateShoppingListDialog({ isOpen, onClose, onAdd }) {
           <Button type="button" variant="outline" onClick={onClose}>
             Hủy
           </Button>
-          <Button type="submit">
+          <Button 
+            type="submit"
+            className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg hover:shadow-xl transition-all text-white"
+          >
             Tạo danh sách
           </Button>
         </div>

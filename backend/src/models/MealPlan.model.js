@@ -61,7 +61,13 @@ const mealPlanSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: function(value) {
-        return value > this.startDate;
+        // Khi update, this.startDate có thể là giá trị cũ hoặc mới
+        // Nếu đang update cả startDate và endDate, dùng giá trị mới
+        // Nếu chỉ update endDate, dùng giá trị hiện tại của startDate
+        const startDateValue = this.startDate || (this.constructor && this.constructor.startDate);
+        // Nếu không có startDate, không validate (sẽ được validate ở required)
+        if (!startDateValue) return true;
+        return value > startDateValue;
       },
       message: 'Ngày kết thúc phải sau ngày bắt đầu'
     }

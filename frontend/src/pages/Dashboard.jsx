@@ -19,7 +19,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { mockDashboardStats, mockWasteData, mockCategoryData } from "@/data/mockData"
 import { getDashboardOverview, getRecentActivities } from "@/utils/api"
 
-const COLORS = ["#10b981", "#ef4444", "#f59e0b", "#3b82f6", "#8b5cf6"]
+const COLORS = ["#22C55E", "#10b981", "#16a34a", "#ef4444", "#f59e0b"]
 
 export function Dashboard() {
   const [dashboardData, setDashboardData] = useState(null)
@@ -250,15 +250,23 @@ export function Dashboard() {
             <CardDescription>Xu hướng giảm lãng phí trong 6 tháng qua</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={data.wasteData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="waste" fill="#10b981" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {!data.wasteData || data.wasteData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-[300px] text-center text-muted-foreground">
+                <Package className="h-12 w-12 mb-3 opacity-50" />
+                <p className="text-sm">Chưa có dữ liệu lãng phí</p>
+                <p className="text-xs mt-1">Dữ liệu sẽ hiển thị khi có thông tin về thực phẩm hết hạn</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={data.wasteData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="waste" fill="#22C55E" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
@@ -268,37 +276,45 @@ export function Dashboard() {
             <CardDescription>Tỷ lệ thực phẩm trong tủ lạnh</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={data.categoryData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {data.categoryData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {!data.categoryData || data.categoryData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-[300px] text-center text-muted-foreground">
+                <Package className="h-12 w-12 mb-3 opacity-50" />
+                <p className="text-sm">Chưa có dữ liệu phân bố</p>
+                <p className="text-xs mt-1">Dữ liệu sẽ hiển thị khi có thực phẩm trong tủ lạnh</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={data.categoryData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={100}
+                    fill="#22C55E"
+                    dataKey="value"
+                  >
+                    {data.categoryData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
 
       {/* Recent Activity */}
-      <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow duration-300">
-        <CardHeader className="bg-gradient-to-r from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border-b">
+      <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow duration-300" style={{ backgroundColor: '#F0FDF4', borderColor: '#DCFCE7' }}>
+        <CardHeader className="border-b" style={{ borderColor: '#DCFCE7' }}>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-3 text-lg">
-                <div className="p-2 rounded-lg bg-purple-500/10">
-                  <Calendar className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                <div className="p-2 rounded-lg" style={{ backgroundColor: '#DCFCE7' }}>
+                  <Calendar className="h-5 w-5" style={{ color: '#22C55E' }} />
                 </div>
                 Hoạt động gần đây
               </CardTitle>
@@ -330,17 +346,17 @@ export function Dashboard() {
                 }
                 const IconComponent = iconMap[activity.icon] || Calendar
                 
-                // Color based on type
+                // Color based on type - use green for primary actions
                 const colorMap = {
-                  'fridge_add': 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+                  'fridge_add': 'bg-green-500/10 text-green-600 dark:text-green-400',
                   'shopping_create': 'bg-green-500/10 text-green-600 dark:text-green-400',
-                  'shopping_complete': 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                  'shopping_complete': 'bg-green-500/10 text-green-600 dark:text-green-400',
                   'recipe_cook': 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
                   'recipe_cooked': 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-                  'expiry_reminder': 'bg-red-500/10 text-red-600 dark:text-red-400',
-                  'shopping_update': 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                  'expiry_reminder': 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
+                  'shopping_update': 'bg-green-500/10 text-green-600 dark:text-green-400'
                 }
-                const iconColor = colorMap[activity.type] || 'bg-primary/10 text-primary'
+                const iconColor = colorMap[activity.type] || 'bg-green-500/10 text-green-600 dark:text-green-400'
 
                 return (
                   <div 

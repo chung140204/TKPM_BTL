@@ -4,10 +4,12 @@ import { Plus, X, Utensils } from "lucide-react"
 
 export function MealSlot({ mealType, recipe, onAdd, onRemove, isAutoSuggested, onViewRecipe }) {
   const mealLabels = {
-    breakfast: "Bữa sáng",
-    lunch: "Bữa trưa",
-    dinner: "Bữa tối"
+    breakfast: { full: "Bữa sáng", short: "Sáng" },
+    lunch: { full: "Bữa trưa", short: "Trưa" },
+    dinner: { full: "Bữa tối", short: "Tối" }
   }
+  
+  const mealLabel = mealLabels[mealType] || { full: mealType, short: mealType }
 
   if (recipe) {
     return (
@@ -23,6 +25,10 @@ export function MealSlot({ mealType, recipe, onAdd, onRemove, isAutoSuggested, o
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-medium text-muted-foreground uppercase">
+                  {mealLabel.short}
+                </span>
+                <span className="text-muted-foreground">•</span>
                 <Utensils className="h-4 w-4 text-primary flex-shrink-0" />
                 <h4 className="font-semibold text-sm truncate">{recipe.name}</h4>
                 {isAutoSuggested && (
@@ -55,6 +61,11 @@ export function MealSlot({ mealType, recipe, onAdd, onRemove, isAutoSuggested, o
   return (
     <Card className="border-dashed hover:border-primary/50 transition-colors">
       <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs font-medium text-muted-foreground uppercase">
+            {mealLabel.short}
+          </span>
+        </div>
         <Button
           variant="ghost"
           onClick={onAdd}

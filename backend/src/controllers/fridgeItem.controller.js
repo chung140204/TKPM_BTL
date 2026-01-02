@@ -30,7 +30,14 @@ exports.getFridgeItems = async (req, res, next) => {
     if (storageLocation) query.storageLocation = storageLocation;
     
     let fridgeItems = await FridgeItem.find(query)
-      .populate('foodItemId', 'name categoryId image')
+      .populate({
+        path: 'foodItemId',
+        select: 'name categoryId image',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      })
       .populate('unitId', 'name abbreviation')
       .sort({ expiryDate: 1 });
 
@@ -118,7 +125,13 @@ exports.getExpiringItems = async (req, res, next) => {
 exports.getFridgeItemById = async (req, res, next) => {
   try {
     const fridgeItem = await FridgeItem.findById(req.params.id)
-      .populate('foodItemId')
+      .populate({
+        path: 'foodItemId',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      })
       .populate('unitId');
 
     if (!fridgeItem) {
@@ -359,6 +372,14 @@ exports.deleteFridgeItem = async (req, res, next) => {
       });
     }
 
+    // Kiểm tra quyền (chỉ owner mới được xóa)
+    if (fridgeItem.userId.toString() !== req.user.id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ chủ sở hữu mới được xóa thực phẩm này'
+      });
+    }
+
     await fridgeItem.deleteOne();
 
     res.json({
@@ -449,7 +470,16 @@ exports.createFridgeItemSimple = async (req, res, next) => {
     fridgeItem.updateStatus();
     await fridgeItem.save();
 
-    await fridgeItem.populate(['foodItemId', 'unitId']);
+    await fridgeItem.populate([
+      {
+        path: 'foodItemId',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      },
+      'unitId'
+    ]);
 
     res.status(201).json({
       success: true,

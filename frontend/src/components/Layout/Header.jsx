@@ -1,14 +1,14 @@
 import { Moon, Sun, Bell, Search, CheckCheck } from "lucide-react"
 import { useState } from "react"
 import { useLocation } from "react-router-dom"
-import { mockUser } from "@/data/mockData"
 import { Dropdown } from "@/components/ui/Dropdown"
 import { Button } from "@/components/ui/Button"
-import { mockNotifications } from "@/data/mockNotifications"
+import { useAuth } from "@/contexts/AuthContext"
 
 export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
+  const { user } = useAuth()
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
-  const [notifications, setNotifications] = useState(mockNotifications)
+  const [notifications, setNotifications] = useState([])
   const location = useLocation()
 
   const unreadCount = notifications.filter(n => !n.isRead).length
@@ -126,14 +126,14 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
           {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </button>
         <div className="flex items-center gap-3">
-          <img
-            src={mockUser.avatar}
-            alt={mockUser.name}
-            className="h-8 w-8 rounded-full"
-          />
+          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+            <span className="text-sm font-medium text-primary">
+              {user?.fullName?.[0]?.toUpperCase() || 'U'}
+            </span>
+          </div>
           <div className="hidden md:block">
-            <p className="text-sm font-medium">{mockUser.name}</p>
-            <p className="text-xs text-muted-foreground">{mockUser.email}</p>
+            <p className="text-sm font-medium">{user?.fullName || 'User'}</p>
+            <p className="text-xs text-muted-foreground">{user?.email || ''}</p>
           </div>
         </div>
       </div>

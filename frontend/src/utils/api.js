@@ -242,3 +242,86 @@ export async function createFridgeItemFromFrontend(item) {
   }
 }
 
+export async function deleteFridgeItem(id) {
+  try {
+    const response = await apiRequest(`/fridge-items/${id}`, {
+      method: 'DELETE'
+    })
+    return response
+  } catch (error) {
+    console.error('Error deleting fridge item:', error)
+    throw error
+  }
+}
+
+// MealPlan APIs
+export async function getMealPlans() {
+  try {
+    const response = await apiRequest('/meal-plans')
+    return response
+  } catch (error) {
+    console.error('Error fetching meal plans:', error)
+    throw error
+  }
+}
+
+export async function getMealPlanById(id) {
+  try {
+    const response = await apiRequest(`/meal-plans/${id}`)
+    return response
+  } catch (error) {
+    console.error('Error fetching meal plan:', error)
+    throw error
+  }
+}
+
+export async function createMealPlan(mealPlanData) {
+  try {
+    const response = await apiRequest('/meal-plans', {
+      method: 'POST',
+      body: mealPlanData
+    })
+    return response
+  } catch (error) {
+    console.error('Error creating meal plan:', error)
+    throw error
+  }
+}
+
+export async function updateMealPlan(id, mealPlanData) {
+  try {
+    const response = await apiRequest(`/meal-plans/${id}`, {
+      method: 'PUT',
+      body: mealPlanData
+    })
+    return response
+  } catch (error) {
+    console.error('Error updating meal plan:', error)
+    throw error
+  }
+}
+
+export async function deleteMealPlan(id) {
+  try {
+    const response = await apiRequest(`/meal-plans/${id}`, {
+      method: 'DELETE'
+    })
+    return response
+  } catch (error) {
+    console.error('Error deleting meal plan:', error)
+    throw error
+  }
+}
+
+export async function generateShoppingListFromMealPlan(id) {
+  try {
+    const response = await apiRequest(`/meal-plans/${id}/generate-shopping-list`, {
+      method: 'POST'
+    })
+    return response
+  } catch (error) {
+    console.error('Error generating shopping list from meal plan:', error)
+    throw error
+  }
+}
+

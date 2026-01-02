@@ -64,18 +64,34 @@ exports.createMealPlan = async (req, res, next) => {
 
 exports.updateMealPlan = async (req, res, next) => {
   try {
-    const mealPlan = await MealPlan.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    ).populate('meals.recipeId');
-
-    if (!mealPlan) {
+    // Tìm meal plan hiện tại để lấy giá trị cũ
+    const existingMealPlan = await MealPlan.findById(req.params.id);
+    
+    if (!existingMealPlan) {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy kế hoạch bữa ăn'
       });
     }
+
+    // Validate startDate và endDate nếu có trong req.body
+    const startDate = req.body.startDate ? new Date(req.body.startDate) : existingMealPlan.startDate;
+    const endDate = req.body.endDate ? new Date(req.body.endDate) : existingMealPlan.endDate;
+
+    // Kiểm tra endDate phải sau startDate
+    if (endDate <= startDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ngày kết thúc phải sau ngày bắt đầu'
+      });
+    }
+
+    // Update meal plan
+    const mealPlan = await MealPlan.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    ).populate('meals.recipeId');
 
     res.json({
       success: true,

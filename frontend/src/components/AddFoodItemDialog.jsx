@@ -31,13 +31,25 @@ export function AddFoodItemDialog({ isOpen, onClose, onAdd }) {
       return
     }
 
-    // Calculate status with accurate date comparison
+    // Safety check: quantity must be positive
+    const quantity = parseFloat(formData.quantity)
+    if (isNaN(quantity) || quantity <= 0) {
+      alert("Số lượng phải lớn hơn 0")
+      return
+    }
+
+    // Safety check: expiryDate must not be in the past
     const expiryDate = new Date(formData.expiryDate)
     const today = new Date()
     
     // Reset time to midnight for accurate day comparison
     today.setHours(0, 0, 0, 0)
     expiryDate.setHours(0, 0, 0, 0)
+    
+    if (expiryDate < today) {
+      alert("Ngày hết hạn không được là ngày trong quá khứ")
+      return
+    }
     
     const diffTime = expiryDate - today
     const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
@@ -53,7 +65,7 @@ export function AddFoodItemDialog({ isOpen, onClose, onAdd }) {
       id: Date.now().toString(),
       name: formData.name,
       category: formData.category,
-      quantity: parseFloat(formData.quantity),
+      quantity: quantity, // Use validated quantity
       unit: formData.unit,
       expiryDate: formData.expiryDate,
       storageLocation: formData.storageLocation || "Ngăn mát", // Default to "Ngăn mát"
@@ -114,9 +126,15 @@ export function AddFoodItemDialog({ isOpen, onClose, onAdd }) {
               id="quantity"
               type="number"
               step="0.1"
-              min="0"
+              min="0.1"
               value={formData.quantity}
-              onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+              onChange={(e) => {
+                const value = e.target.value
+                // Prevent negative values
+                if (value === '' || (parseFloat(value) >= 0)) {
+                  setFormData({ ...formData, quantity: value })
+                }
+              }}
               placeholder="0"
               required
             />

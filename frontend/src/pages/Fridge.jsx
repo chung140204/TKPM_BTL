@@ -3,11 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
 import { Button } from "@/components/ui/Button"
 import { mockFridgeItems as initialMockItems } from "@/data/mockData"
-import { Clock, Package, Plus, Snowflake, Thermometer, DoorOpen, Home, Info } from "lucide-react"
+import { Clock, Package, Plus, Snowflake, Thermometer, DoorOpen, Home, Info, AlertTriangle, Trash2 } from "lucide-react"
 import { useSearch } from "@/components/Layout/MainLayout"
 import { AddFoodItemDialog } from "@/components/AddFoodItemDialog"
 import { getPreservationTip } from "@/utils/preservationTips"
-import { createFridgeItemFromFrontend } from "@/utils/api"
+import { createFridgeItemFromFrontend, getFridgeItems, deleteFridgeItem } from "@/utils/api"
+import { Loader2 } from "lucide-react"
 
 // Storage location icons mapping
 const storageLocationIcons = {
@@ -19,8 +20,16 @@ const storageLocationIcons = {
 
 const statusConfig = {
   available: { label: "Còn hạn", variant: "success", color: "bg-green-500" },
-  expiring_soon: { label: "Sắp hết hạn", variant: "warning", color: "bg-yellow-500" },
+  expiring_soon: { label: "Sắp hết hạn", variant: "warning", color: "bg-orange-500" },
   expired: { label: "Đã hết hạn", variant: "danger", color: "bg-red-500" },
+  used_up: { label: "Đã dùng hết", variant: "default", color: "bg-gray-500" },
+}
+
+// Sort priority: expiring_soon (1), available (2), expired/used_up (3)
+const getStatusPriority = (status) => {
+  if (status === 'expiring_soon') return 1
+  if (status === 'available') return 2
+  return 3 // expired, used_up
 }
 
 const STORAGE_KEY = "fridge_items"
@@ -91,18 +100,89 @@ function saveFridgeItems(items) {
 export function Fridge() {
   const searchQuery = useSearch() || ""
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [fridgeItems, setFridgeItems] = useState(() => loadFridgeItems())
+  const [fridgeItems, setFridgeItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [hoveredItemId, setHoveredItemId] = useState(null)
   const categories = ["all", ...new Set(fridgeItems.map(item => item.category))]
 
-  // Save to localStorage whenever fridgeItems changes
+  // Transform API data to frontend format
+  const transformFridgeItem = (item) => {
+    const expiryDate = new Date(item.expiryDate)
+    const { status, daysLeft } = calculateItemStatus(expiryDate)
+    
+    // Get category name - handle both populated object and ObjectId string
+    let categoryName = 'Khác'
+    if (item.foodItemId?.categoryId) {
+      if (typeof item.foodItemId.categoryId === 'object' && item.foodItemId.categoryId.name) {
+        categoryName = item.foodItemId.categoryId.name
+      } else if (typeof item.foodItemId.categoryId === 'string') {
+        categoryName = item.foodItemId.categoryId
+      }
+    }
+    
+    return {
+      id: item._id,
+      name: item.foodItemId?.name || 'Unknown',
+      category: categoryName,
+      quantity: item.quantity,
+      unit: item.unitId?.abbreviation || item.unitId?.name || 'cái',
+      expiryDate: expiryDate.toISOString(),
+      storageLocation: item.storageLocation || 'Ngăn mát',
+      status: item.status || status,
+      daysLeft: daysLeft
+    }
+  }
+
+  // Fetch fridge items from API
   useEffect(() => {
-    saveFridgeItems(fridgeItems)
-  }, [fridgeItems])
+    const fetchFridgeItems = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        
+        console.log('Fetching fridge items from API...')
+        const response = await getFridgeItems()
+        console.log('Fridge items API response:', response)
+        
+        if (response.success && response.data?.fridgeItems) {
+          // Transform API data to frontend format
+          const transformed = response.data.fridgeItems.map(transformFridgeItem)
+          setFridgeItems(transformed)
+          console.log('✅ Loaded', transformed.length, 'items from database')
+        } else {
+          throw new Error(response.message || 'API trả về lỗi')
+        }
+      } catch (err) {
+        console.error('Error fetching fridge items:', err)
+        setError(err.message || 'Không thể kết nối đến server')
+        
+        // Fallback to localStorage if API fails
+        const localItems = loadFridgeItems()
+        if (localItems.length > 0) {
+          console.warn('⚠ Using localStorage data as fallback')
+          setFridgeItems(localItems)
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchFridgeItems()
+  }, [])
+
+  // Save to localStorage whenever fridgeItems changes (for offline support)
+  useEffect(() => {
+    if (fridgeItems.length > 0 && !loading) {
+      saveFridgeItems(fridgeItems)
+    }
+  }, [fridgeItems, loading])
 
   // Periodically update status based on current date (every minute)
   useEffect(() => {
+    if (fridgeItems.length === 0) return
+
     const updateStatuses = () => {
       setFridgeItems(prevItems => {
         const updatedItems = prevItems.map(item => {
@@ -121,21 +201,20 @@ export function Fridge() {
         )
         
         if (hasChanges) {
-          saveFridgeItems(updatedItems)
           return updatedItems
         }
         return prevItems
       })
     }
 
-    // Update immediately on mount
+    // Update immediately
     updateStatuses()
     
     // Then update every minute
     const interval = setInterval(updateStatuses, 60000)
 
     return () => clearInterval(interval)
-  }, [])
+  }, [fridgeItems.length])
 
   const handleAddItem = async (newItem) => {
     // Format quantity as string with unit for API
@@ -152,11 +231,12 @@ export function Fridge() {
         price: 0
       })
       
-      if (response.success) {
-        // Success: Add to local state and localStorage
-        const updatedItems = [...fridgeItems, newItem]
-        setFridgeItems(updatedItems)
-        saveFridgeItems(updatedItems)
+      if (response.success && response.data?.fridgeItem) {
+        // Transform the new item from API response
+        const transformedItem = transformFridgeItem(response.data.fridgeItem)
+        
+        // Add to local state
+        setFridgeItems(prev => [...prev, transformedItem])
         
         // Dispatch event to notify Dashboard to refresh
         window.dispatchEvent(new CustomEvent('fridgeItemsUpdated'))
@@ -166,14 +246,50 @@ export function Fridge() {
         throw new Error(response.message || 'Lỗi khi lưu vào database')
       }
     } catch (error) {
-      console.warn('⚠ Không thể lưu vào database, lưu vào localStorage:', error)
-      // Fallback: Save to localStorage only
-      const updatedItems = [...fridgeItems, newItem]
-      setFridgeItems(updatedItems)
-      saveFridgeItems(updatedItems)
+      console.warn('⚠ Không thể lưu vào database:', error)
+      // Fallback: Add to local state (will be saved to localStorage)
+      const fallbackItem = {
+        ...newItem,
+        id: Date.now().toString(), // Temporary ID
+        status: calculateItemStatus(newItem.expiryDate).status,
+        daysLeft: calculateItemStatus(newItem.expiryDate).daysLeft
+      }
+      setFridgeItems(prev => [...prev, fallbackItem])
       
-      // Show warning (optional)
+      // Show warning
       alert(`Đã lưu vào bộ nhớ tạm. Vui lòng kiểm tra kết nối database để đồng bộ dữ liệu.\n\nLỗi: ${error.message}`)
+    }
+  }
+
+  const handleDeleteItem = async (itemId) => {
+    // Confirm deletion
+    if (!window.confirm('Bạn có chắc chắn muốn xóa thực phẩm này?')) {
+      return
+    }
+
+    try {
+      // Try to delete from database via API
+      const response = await deleteFridgeItem(itemId)
+      
+      if (response.success) {
+        // Remove from local state
+        setFridgeItems(prev => prev.filter(item => item.id !== itemId))
+        
+        // Dispatch event to notify Dashboard to refresh
+        window.dispatchEvent(new CustomEvent('fridgeItemsUpdated'))
+        
+        console.log('✅ Đã xóa thực phẩm khỏi database')
+      } else {
+        throw new Error(response.message || 'Lỗi khi xóa từ database')
+      }
+    } catch (error) {
+      console.warn('⚠ Không thể xóa từ database:', error)
+      
+      // Fallback: Remove from local state (will be saved to localStorage)
+      setFridgeItems(prev => prev.filter(item => item.id !== itemId))
+      
+      // Show warning
+      alert(`Đã xóa khỏi bộ nhớ tạm. Vui lòng kiểm tra kết nối database để đồng bộ dữ liệu.\n\nLỗi: ${error.message}`)
     }
   }
 
@@ -190,6 +306,33 @@ export function Fridge() {
     )
   }
 
+  // Hide items with status "used_up"
+  filteredItems = filteredItems.filter(item => item.status !== 'used_up')
+
+  // Sort items: by status priority, then by expiryDate ascending
+  filteredItems = [...filteredItems].sort((a, b) => {
+    const priorityA = getStatusPriority(a.status)
+    const priorityB = getStatusPriority(b.status)
+    
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB
+    }
+    
+    // Same status: sort by expiryDate ascending
+    return new Date(a.expiryDate) - new Date(b.expiryDate)
+  })
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <p className="text-muted-foreground">Đang tải dữ liệu từ database...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -197,10 +340,17 @@ export function Fridge() {
           <h1 className="text-3xl font-bold">Quản lý tủ lạnh</h1>
           <p className="text-muted-foreground">Theo dõi thực phẩm và hạn sử dụng</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Thêm thực phẩm
-        </Button>
+        <div className="flex items-center gap-3">
+          {error && (
+            <span className="text-sm text-yellow-600 dark:text-yellow-400">
+              ⚠ {error}
+            </span>
+          )}
+          <Button onClick={() => setIsDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Thêm thực phẩm
+          </Button>
+        </div>
       </div>
 
       <AddFoodItemDialog
@@ -223,21 +373,32 @@ export function Fridge() {
         ))}
       </div>
 
+      {/* Batch explanation tooltip */}
+      {filteredItems.length > 0 && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-lg">
+          <Info className="h-3 w-3" />
+          <span>Mỗi thẻ đại diện cho một lô thực phẩm (batch) riêng biệt.</span>
+        </div>
+      )}
+
       {/* Items Grid */}
       {filteredItems.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
-            <p className="text-muted-foreground">
-              {searchQuery
-                ? `Không tìm thấy thực phẩm nào với từ khóa "${searchQuery}"`
-                : "Chưa có thực phẩm nào"}
-            </p>
+            <div className="space-y-2">
+              <Package className="h-12 w-12 mx-auto text-muted-foreground opacity-50" />
+              <p className="text-muted-foreground">
+                {searchQuery
+                  ? `Không tìm thấy thực phẩm nào với từ khóa "${searchQuery}"`
+                  : "Tủ lạnh đang trống. Hãy thêm thực phẩm để bắt đầu theo dõi."}
+              </p>
+            </div>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredItems.map((item) => {
-            const status = statusConfig[item.status]
+            const status = statusConfig[item.status] || statusConfig.available
             return (
               <Card 
                 key={item.id} 
@@ -252,7 +413,8 @@ export function Fridge() {
                         <CardTitle className="text-lg">{item.name}</CardTitle>
                         <div className="relative">
                           <Info 
-                            className="h-4 w-4 text-muted-foreground hover:text-primary cursor-help transition-colors" 
+                            className="h-4 w-4 text-muted-foreground hover:text-primary cursor-help transition-colors"
+                            title="HSD, vị trí lưu trữ, và mẹo bảo quản (nếu có)."
                           />
                           {hoveredItemId === item.id && (
                             <div className="absolute left-0 top-6 z-50 w-64 rounded-lg border bg-popover p-3 text-sm shadow-lg animate-in fade-in-0 zoom-in-95">
@@ -266,7 +428,26 @@ export function Fridge() {
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">{item.category}</p>
                     </div>
-                    <Badge variant={status.variant}>{status.label}</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge 
+                        variant={status.variant}
+                        className={item.status === 'expiring_soon' ? 'bg-orange-500 hover:bg-orange-600' : ''}
+                      >
+                        {item.status === 'expiring_soon' && (
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                        )}
+                        {status.label}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteItem(item.id)}
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        title="Xóa thực phẩm"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -291,8 +472,9 @@ export function Fridge() {
                       </div>
                     )}
                     {item.status === "expiring_soon" && (
-                      <div className="rounded-lg bg-yellow-50 dark:bg-yellow-900/20 p-2">
-                        <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                      <div className="rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 p-2">
+                        <p className="text-xs text-orange-800 dark:text-orange-200 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
                           Còn {item.daysLeft} ngày nữa sẽ hết hạn
                         </p>
                       </div>
