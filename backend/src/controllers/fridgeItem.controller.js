@@ -7,9 +7,19 @@ const FridgeItem = require('../models/FridgeItem.model');
 const FoodItem = require('../models/FoodItem.model');
 const Unit = require('../models/Unit.model');
 const Category = require('../models/Category.model');
+const ConsumptionLog = require('../models/ConsumptionLog.model');
 // Require các models liên quan để Mongoose có thể populate
 require('../models/FoodItem.model');
 require('../models/Unit.model');
+
+const normalizeDate = (value) => {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
 
 /**
  * @desc    Lấy danh sách thực phẩm trong tủ lạnh
@@ -175,13 +185,27 @@ exports.createFridgeItem = async (req, res, next) => {
       });
     }
 
-    const finalExpiryDate = expiryDate || new Date();
+    const finalExpiryDate = normalizeDate(expiryDate || new Date());
+    if (!finalExpiryDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'expiryDate không hợp lệ'
+      });
+    }
+    const expiryDateStart = new Date(finalExpiryDate);
+    const expiryDateEnd = new Date(finalExpiryDate);
+    expiryDateEnd.setDate(expiryDateEnd.getDate() + 1);
+    const storageLocationValue = otherData.storageLocation || 'Ngăn mát';
+    const familyGroupIdValue = otherData.familyGroupId || null;
     
     // Kiểm tra đã tồn tại FridgeItem với cùng userId, foodItemId, expiryDate
     const existingItem = await FridgeItem.findOne({
       userId: req.user.id,
       foodItemId: foodItemId,
-      expiryDate: finalExpiryDate,
+      unitId: otherData.unitId,
+      expiryDate: { $gte: expiryDateStart, $lt: expiryDateEnd },
+      storageLocation: storageLocationValue,
+      familyGroupId: familyGroupIdValue,
       status: { $ne: 'used_up' } // Chỉ kiểm tra items chưa hết
     });
 
@@ -206,6 +230,8 @@ exports.createFridgeItem = async (req, res, next) => {
         foodItemId,
         quantity,
         expiryDate: finalExpiryDate,
+        storageLocation: storageLocationValue,
+        familyGroupId: familyGroupIdValue,
         userId: req.user.id
       });
 
@@ -345,6 +371,19 @@ exports.useFridgeItem = async (req, res, next) => {
 
     // Lưu thay đổi
     await fridgeItem.save();
+
+    try {
+      await ConsumptionLog.create({
+        userId: req.user.id,
+        foodItemId: fridgeItem.foodItemId,
+        unitId: fridgeItem.unitId,
+        fridgeItemId: fridgeItem._id,
+        quantity: usedQuantity,
+        source: 'manual'
+      });
+    } catch (logError) {
+      console.error('Error logging consumption:', logError);
+    }
     await fridgeItem.populate(['foodItemId', 'unitId']);
 
     res.json({
@@ -401,12 +440,22 @@ exports.deleteFridgeItem = async (req, res, next) => {
  */
 exports.createFridgeItemSimple = async (req, res, next) => {
   try {
-    const { name, category, quantity, expiryDate, storageLocation, price } = req.body;
-    
-    if (!name || !category || !quantity || !expiryDate) {
+    const {
+      name,
+      category,
+      quantity,
+      expiryDate,
+      purchaseDate,
+      storageLocation,
+      price,
+      shelfLifeDays,
+      saveToCatalog
+    } = req.body;
+
+    if (!name || !category || !quantity) {
       return res.status(400).json({
         success: false,
-        message: 'name, category, quantity, và expiryDate là bắt buộc'
+        message: 'name, category, và quantity là bắt buộc'
       });
     }
 
@@ -441,27 +490,111 @@ exports.createFridgeItemSimple = async (req, res, next) => {
     }
 
     // 3. Tìm hoặc tạo FoodItem
-    let foodItemDoc = await FoodItem.findOne({ 
+    let foodItemDoc = await FoodItem.findOne({
       name: { $regex: new RegExp(`^${name}$`, 'i') }
     });
     if (!foodItemDoc) {
+      const normalizedShelfLife = shelfLifeDays !== undefined && shelfLifeDays !== null
+        ? Number(shelfLifeDays)
+        : null;
+
+      if (!expiryDate && !(normalizedShelfLife && normalizedShelfLife > 0)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cần nhập shelfLifeDays hoặc expiryDate cho thực phẩm mới'
+        });
+      }
+
       foodItemDoc = await FoodItem.create({
         name: name,
         categoryId: categoryDoc._id,
         defaultUnit: unitDoc._id,
         description: `Auto-created from fridge: ${name}`,
-        createdBy: req.user.id
+        averageExpiryDays: normalizedShelfLife && normalizedShelfLife > 0 ? normalizedShelfLife : null,
+        defaultStorageLocation: storageLocation || 'Ngăn mát',
+        createdBy: req.user.id,
+        isActive: saveToCatalog === false ? false : true
+      });
+    }
+
+    const purchaseDateValue = purchaseDate ? new Date(purchaseDate) : new Date();
+    if (Number.isNaN(purchaseDateValue.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'purchaseDate không hợp lệ'
+      });
+    }
+
+    let finalExpiryDate = expiryDate ? normalizeDate(expiryDate) : null;
+    if (finalExpiryDate && Number.isNaN(finalExpiryDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'expiryDate không hợp lệ'
+      });
+    }
+
+    let effectiveShelfLife = shelfLifeDays !== undefined && shelfLifeDays !== null
+      ? Number(shelfLifeDays)
+      : foodItemDoc.averageExpiryDays;
+
+    if (!finalExpiryDate && effectiveShelfLife && effectiveShelfLife > 0) {
+      finalExpiryDate = new Date(purchaseDateValue);
+      finalExpiryDate.setDate(finalExpiryDate.getDate() + effectiveShelfLife);
+      finalExpiryDate = normalizeDate(finalExpiryDate);
+    }
+
+    if (!finalExpiryDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không thể tính expiryDate, vui lòng nhập thủ công'
       });
     }
 
     // 4. Tạo FridgeItem
+    const expiryDateStart = new Date(finalExpiryDate);
+    const expiryDateEnd = new Date(finalExpiryDate);
+    expiryDateEnd.setDate(expiryDateEnd.getDate() + 1);
+
+    const existingItem = await FridgeItem.findOne({
+      userId: req.user.id,
+      foodItemId: foodItemDoc._id,
+      unitId: unitDoc._id,
+      expiryDate: { $gte: expiryDateStart, $lt: expiryDateEnd },
+      storageLocation: storageLocation || foodItemDoc.defaultStorageLocation || 'Ngăn mát',
+      familyGroupId: null,
+      status: { $ne: 'used_up' }
+    });
+
+    if (existingItem) {
+      existingItem.quantity += quantityValue;
+      existingItem.updateStatus();
+      await existingItem.save();
+      await existingItem.populate([
+        {
+          path: 'foodItemId',
+          populate: {
+            path: 'categoryId',
+            select: 'name'
+          }
+        },
+        'unitId'
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Đã cộng thêm số lượng vào thực phẩm hiện có',
+        data: { fridgeItem: existingItem }
+      });
+    }
+
     const fridgeItem = await FridgeItem.create({
       userId: req.user.id,
       foodItemId: foodItemDoc._id,
       unitId: unitDoc._id,
       quantity: quantityValue,
-      expiryDate: new Date(expiryDate),
-      storageLocation: storageLocation || 'Ngăn mát',
+      expiryDate: finalExpiryDate,
+      purchaseDate: purchaseDateValue,
+      storageLocation: storageLocation || foodItemDoc.defaultStorageLocation || 'Ngăn mát',
       price: price || 0,
       source: 'manual'
     });
@@ -490,4 +623,3 @@ exports.createFridgeItemSimple = async (req, res, next) => {
     next(error);
   }
 };
-

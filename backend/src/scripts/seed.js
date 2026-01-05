@@ -146,6 +146,7 @@ const seedData = async () => {
         defaultUnit: unitKg._id,
         description: 'Cà chua tươi',
         averageExpiryDays: 7,
+        defaultStorageLocation: 'Ngăn mát',
         createdBy: adminUser._id
       },
       {
@@ -154,6 +155,7 @@ const seedData = async () => {
         defaultUnit: unitKg._id,
         description: 'Hành tây',
         averageExpiryDays: 30,
+        defaultStorageLocation: 'Nhiệt độ phòng',
         createdBy: adminUser._id
       },
       {
@@ -162,6 +164,7 @@ const seedData = async () => {
         defaultUnit: unitCai._id,
         description: 'Tỏi',
         averageExpiryDays: 60,
+        defaultStorageLocation: 'Nhiệt độ phòng',
         createdBy: adminUser._id
       },
       {
@@ -170,6 +173,7 @@ const seedData = async () => {
         defaultUnit: unitBo._id,
         description: 'Rau muống tươi',
         averageExpiryDays: 3,
+        defaultStorageLocation: 'Ngăn mát',
         createdBy: adminUser._id
       },
       // Thịt cá
@@ -179,6 +183,7 @@ const seedData = async () => {
         defaultUnit: unitKg._id,
         description: 'Thịt heo tươi',
         averageExpiryDays: 3,
+        defaultStorageLocation: 'Ngăn đông',
         createdBy: adminUser._id
       },
       {
@@ -187,6 +192,7 @@ const seedData = async () => {
         defaultUnit: unitKg._id,
         description: 'Thịt bò tươi',
         averageExpiryDays: 3,
+        defaultStorageLocation: 'Ngăn đông',
         createdBy: adminUser._id
       },
       {
@@ -195,6 +201,7 @@ const seedData = async () => {
         defaultUnit: unitKg._id,
         description: 'Cá tươi',
         averageExpiryDays: 2,
+        defaultStorageLocation: 'Ngăn đông',
         createdBy: adminUser._id
       },
       {
@@ -203,6 +210,7 @@ const seedData = async () => {
         defaultUnit: unitKg._id,
         description: 'Tôm tươi',
         averageExpiryDays: 2,
+        defaultStorageLocation: 'Ngăn đông',
         createdBy: adminUser._id
       },
       // Đồ khô
@@ -212,6 +220,7 @@ const seedData = async () => {
         defaultUnit: unitKg._id,
         description: 'Gạo trắng',
         averageExpiryDays: 365,
+        defaultStorageLocation: 'Nhiệt độ phòng',
         createdBy: adminUser._id
       },
       {
@@ -220,6 +229,7 @@ const seedData = async () => {
         defaultUnit: unitGoi._id,
         description: 'Mì tôm',
         averageExpiryDays: 180,
+        defaultStorageLocation: 'Nhiệt độ phòng',
         createdBy: adminUser._id
       },
       // Đồ uống
@@ -229,6 +239,7 @@ const seedData = async () => {
         defaultUnit: unitLitre._id,
         description: 'Sữa tươi',
         averageExpiryDays: 7,
+        defaultStorageLocation: 'Ngăn mát',
         createdBy: adminUser._id
       },
       {
@@ -237,6 +248,7 @@ const seedData = async () => {
         defaultUnit: unitChai._id,
         description: 'Nước mắm',
         averageExpiryDays: 365,
+        defaultStorageLocation: 'Nhiệt độ phòng',
         createdBy: adminUser._id
       }
     ]);
@@ -246,8 +258,14 @@ const seedData = async () => {
     const gao = foodItems.find(f => f.name === 'Gạo');
     const caChua = foodItems.find(f => f.name === 'Cà chua');
     const thitHeo = foodItems.find(f => f.name === 'Thịt heo');
+    const thitBo = foodItems.find(f => f.name === 'Thịt bò');
+    const ca = foodItems.find(f => f.name === 'Cá');
+    const tom = foodItems.find(f => f.name === 'Tôm');
     const hanhTay = foodItems.find(f => f.name === 'Hành tây');
     const toi = foodItems.find(f => f.name === 'Tỏi');
+    const rauMuong = foodItems.find(f => f.name === 'Rau muống');
+    const miTom = foodItems.find(f => f.name === 'Mì tôm');
+    const suaTuoi = foodItems.find(f => f.name === 'Sữa tươi');
 
     // 6. Tạo Recipes (công thức mẫu)
     console.log('🍳 Đang tạo Recipes...');
@@ -255,6 +273,7 @@ const seedData = async () => {
       {
         name: 'Cơm rang thập cẩm',
         description: 'Món cơm rang ngon miệng với nhiều nguyên liệu',
+        image: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800',
         servings: 4,
         prepTime: 15,
         cookTime: 20,
@@ -322,6 +341,7 @@ const seedData = async () => {
       {
         name: 'Canh chua cá',
         description: 'Canh chua cá truyền thống',
+        image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800',
         servings: 4,
         prepTime: 20,
         cookTime: 30,
@@ -365,6 +385,340 @@ const seedData = async () => {
         approvedBy: adminUser._id,
         approvedAt: new Date(),
         favoriteCount: 0
+      },
+      {
+        name: 'Rau muống xào tỏi',
+        description: 'Món rau xào đơn giản, thơm mùi tỏi',
+        image: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=800',
+        servings: 2,
+        prepTime: 10,
+        cookTime: 8,
+        difficulty: 'easy',
+        category: 'Rau',
+        ingredients: [
+          {
+            foodItemId: rauMuong._id,
+            quantity: 1,
+            unitId: unitBo._id,
+            notes: 'Rửa sạch, để ráo'
+          },
+          {
+            foodItemId: toi._id,
+            quantity: 3,
+            unitId: unitCai._id,
+            notes: 'Băm nhỏ'
+          }
+        ],
+        instructions: [
+          {
+            step: 1,
+            description: 'Phi thơm tỏi với chút dầu ăn'
+          },
+          {
+            step: 2,
+            description: 'Cho rau muống vào xào nhanh tay'
+          },
+          {
+            step: 3,
+            description: 'Nêm nếm vừa ăn và tắt bếp'
+          }
+        ],
+        tags: ['nhanh', 'rau', 'dễ làm'],
+        createdBy: adminUser._id,
+        isApproved: true,
+        approvedBy: adminUser._id,
+        approvedAt: new Date(),
+        favoriteCount: 0
+      },
+      {
+        name: 'Thịt bò xào hành tây',
+        description: 'Thịt bò mềm, hành tây thơm ngọt',
+        image: 'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=800',
+        servings: 3,
+        prepTime: 15,
+        cookTime: 12,
+        difficulty: 'medium',
+        category: 'Món chính',
+        ingredients: [
+          {
+            foodItemId: thitBo._id,
+            quantity: 0.4,
+            unitId: unitKg._id,
+            notes: 'Thái lát mỏng'
+          },
+          {
+            foodItemId: hanhTay._id,
+            quantity: 0.2,
+            unitId: unitKg._id,
+            notes: 'Cắt múi cau'
+          },
+          {
+            foodItemId: toi._id,
+            quantity: 2,
+            unitId: unitCai._id,
+            notes: 'Băm nhỏ'
+          }
+        ],
+        instructions: [
+          {
+            step: 1,
+            description: 'Ướp thịt bò với gia vị trong 10 phút'
+          },
+          {
+            step: 2,
+            description: 'Phi thơm tỏi, cho thịt bò vào xào nhanh'
+          },
+          {
+            step: 3,
+            description: 'Cho hành tây vào đảo đều, nêm nếm vừa ăn'
+          }
+        ],
+        tags: ['thịt bò', 'xào', 'món mặn'],
+        createdBy: adminUser._id,
+        isApproved: true,
+        approvedBy: adminUser._id,
+        approvedAt: new Date(),
+        favoriteCount: 0
+      },
+      {
+        name: 'Cá kho cà chua',
+        description: 'Cá kho đậm đà với cà chua',
+        image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800',
+        servings: 4,
+        prepTime: 20,
+        cookTime: 35,
+        difficulty: 'medium',
+        category: 'Món chính',
+        ingredients: [
+          {
+            foodItemId: ca._id,
+            quantity: 0.6,
+            unitId: unitKg._id,
+            notes: 'Làm sạch, cắt khúc'
+          },
+          {
+            foodItemId: caChua._id,
+            quantity: 0.3,
+            unitId: unitKg._id,
+            notes: 'Cắt múi'
+          },
+          {
+            foodItemId: hanhTay._id,
+            quantity: 0.1,
+            unitId: unitKg._id,
+            notes: 'Thái lát'
+          },
+          {
+            foodItemId: toi._id,
+            quantity: 2,
+            unitId: unitCai._id,
+            notes: 'Băm nhỏ'
+          }
+        ],
+        instructions: [
+          {
+            step: 1,
+            description: 'Ướp cá với gia vị trong 15 phút'
+          },
+          {
+            step: 2,
+            description: 'Phi thơm tỏi, xào cà chua và hành tây'
+          },
+          {
+            step: 3,
+            description: 'Cho cá vào kho lửa nhỏ đến khi thấm'
+          }
+        ],
+        tags: ['cá', 'kho', 'đậm đà'],
+        createdBy: adminUser._id,
+        isApproved: true,
+        approvedBy: adminUser._id,
+        approvedAt: new Date(),
+        favoriteCount: 0
+      },
+      {
+        name: 'Canh rau muống nấu tôm',
+        description: 'Canh thanh mát với tôm tươi',
+        image: 'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=800',
+        servings: 3,
+        prepTime: 15,
+        cookTime: 15,
+        difficulty: 'easy',
+        category: 'Canh',
+        ingredients: [
+          {
+            foodItemId: rauMuong._id,
+            quantity: 1,
+            unitId: unitBo._id,
+            notes: 'Rửa sạch'
+          },
+          {
+            foodItemId: tom._id,
+            quantity: 0.3,
+            unitId: unitKg._id,
+            notes: 'Làm sạch'
+          },
+          {
+            foodItemId: toi._id,
+            quantity: 2,
+            unitId: unitCai._id,
+            notes: 'Đập dập'
+          }
+        ],
+        instructions: [
+          {
+            step: 1,
+            description: 'Đun sôi nước, cho tỏi và tôm vào nấu'
+          },
+          {
+            step: 2,
+            description: 'Cho rau muống vào, nêm nếm vừa ăn'
+          },
+          {
+            step: 3,
+            description: 'Tắt bếp khi rau vừa chín tới'
+          }
+        ],
+        tags: ['canh', 'tôm', 'rau'],
+        createdBy: adminUser._id,
+        isApproved: true,
+        approvedBy: adminUser._id,
+        approvedAt: new Date(),
+        favoriteCount: 0
+      },
+      {
+        name: 'Cơm bò xào cà chua',
+        description: 'Cơm nóng ăn cùng bò xào cà chua',
+        image: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=800',
+        servings: 4,
+        prepTime: 15,
+        cookTime: 20,
+        difficulty: 'medium',
+        category: 'Món chính',
+        ingredients: [
+          {
+            foodItemId: gao._id,
+            quantity: 0.5,
+            unitId: unitKg._id,
+            notes: 'Nấu cơm'
+          },
+          {
+            foodItemId: thitBo._id,
+            quantity: 0.3,
+            unitId: unitKg._id,
+            notes: 'Thái lát'
+          },
+          {
+            foodItemId: caChua._id,
+            quantity: 0.2,
+            unitId: unitKg._id,
+            notes: 'Cắt múi'
+          }
+        ],
+        instructions: [
+          {
+            step: 1,
+            description: 'Nấu cơm chín và để riêng'
+          },
+          {
+            step: 2,
+            description: 'Xào thịt bò cho chín tái'
+          },
+          {
+            step: 3,
+            description: 'Cho cà chua vào xào cùng, nêm nếm vừa ăn'
+          }
+        ],
+        tags: ['cơm', 'bò', 'cà chua'],
+        createdBy: adminUser._id,
+        isApproved: true,
+        approvedBy: adminUser._id,
+        approvedAt: new Date(),
+        favoriteCount: 0
+      },
+      {
+        name: 'Mì tôm bò',
+        description: 'Mì tôm ăn kèm thịt bò cho bữa nhanh',
+        image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800',
+        servings: 2,
+        prepTime: 5,
+        cookTime: 7,
+        difficulty: 'easy',
+        category: 'Món chính',
+        ingredients: [
+          {
+            foodItemId: miTom._id,
+            quantity: 2,
+            unitId: unitGoi._id,
+            notes: 'Gói mì'
+          },
+          {
+            foodItemId: thitBo._id,
+            quantity: 0.2,
+            unitId: unitKg._id,
+            notes: 'Thái lát mỏng'
+          },
+          {
+            foodItemId: hanhTay._id,
+            quantity: 0.1,
+            unitId: unitKg._id,
+            notes: 'Thái lát'
+          }
+        ],
+        instructions: [
+          {
+            step: 1,
+            description: 'Xào thịt bò và hành tây cho thơm'
+          },
+          {
+            step: 2,
+            description: 'Nấu mì tôm theo hướng dẫn trên gói'
+          },
+          {
+            step: 3,
+            description: 'Cho thịt bò vào bát mì và thưởng thức'
+          }
+        ],
+        tags: ['mì', 'nhanh', 'bò'],
+        createdBy: adminUser._id,
+        isApproved: true,
+        approvedBy: adminUser._id,
+        approvedAt: new Date(),
+        favoriteCount: 0
+      },
+      {
+        name: 'Sữa tươi nóng',
+        description: 'Đồ uống đơn giản, dễ làm',
+        image: 'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=800',
+        servings: 2,
+        prepTime: 2,
+        cookTime: 3,
+        difficulty: 'easy',
+        category: 'Đồ uống',
+        ingredients: [
+          {
+            foodItemId: suaTuoi._id,
+            quantity: 1,
+            unitId: unitLitre._id,
+            notes: 'Hâm nóng'
+          }
+        ],
+        instructions: [
+          {
+            step: 1,
+            description: 'Đổ sữa vào nồi nhỏ'
+          },
+          {
+            step: 2,
+            description: 'Hâm nóng nhẹ, không để sôi'
+          }
+        ],
+        tags: ['đồ uống', 'nhanh'],
+        createdBy: adminUser._id,
+        isApproved: true,
+        approvedBy: adminUser._id,
+        approvedAt: new Date(),
+        favoriteCount: 0
       }
     ]);
     console.log('✅ Đã tạo', recipes.length, 'Recipes');
@@ -384,4 +738,3 @@ const seedData = async () => {
 
 // Chạy seed
 seedData();
-

@@ -24,7 +24,7 @@ const shoppingListItemSchema = new mongoose.Schema({
   },
   reason: {
     type: String,
-    enum: ['expired', 'used_up', 'expiring_soon'],
+    enum: ['expired', 'used_up', 'expiring_soon', 'missing_ingredient'],
     required: true
   },
   isBought: {
@@ -113,4 +113,3 @@ shoppingListSchema.index({ plannedDate: 1 });
 shoppingListSchema.index({ userId: 1, status: 1, plannedDate: 1 });
 
 module.exports = mongoose.model('ShoppingList', shoppingListSchema);
-

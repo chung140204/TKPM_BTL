@@ -227,6 +227,9 @@ export function Fridge() {
         category: newItem.category,
         quantity: quantityString,
         expiryDate: newItem.expiryDate,
+        purchaseDate: newItem.purchaseDate,
+        shelfLifeDays: newItem.shelfLifeDays,
+        saveToCatalog: newItem.saveToCatalog,
         storageLocation: newItem.storageLocation,
         price: 0
       })
@@ -235,8 +238,16 @@ export function Fridge() {
         // Transform the new item from API response
         const transformedItem = transformFridgeItem(response.data.fridgeItem)
         
-        // Add to local state
-        setFridgeItems(prev => [...prev, transformedItem])
+        // Add or update local state
+        setFridgeItems(prev => {
+          const existingIndex = prev.findIndex(item => item.id === transformedItem.id)
+          if (existingIndex === -1) {
+            return [...prev, transformedItem]
+          }
+          const next = [...prev]
+          next[existingIndex] = transformedItem
+          return next
+        })
         
         // Dispatch event to notify Dashboard to refresh
         window.dispatchEvent(new CustomEvent('fridgeItemsUpdated'))
@@ -247,14 +258,45 @@ export function Fridge() {
       }
     } catch (error) {
       console.warn('⚠ Không thể lưu vào database:', error)
+      const fallbackExpiryDate = newItem.expiryDate || (() => {
+        const shelfLifeDays = Number(newItem.shelfLifeDays)
+        if (!newItem.purchaseDate || !Number.isFinite(shelfLifeDays) || shelfLifeDays <= 0) {
+          return newItem.expiryDate
+        }
+        const purchaseDate = new Date(newItem.purchaseDate)
+        if (Number.isNaN(purchaseDate.getTime())) {
+          return newItem.expiryDate
+        }
+        purchaseDate.setDate(purchaseDate.getDate() + shelfLifeDays)
+        return purchaseDate.toISOString()
+      })()
       // Fallback: Add to local state (will be saved to localStorage)
       const fallbackItem = {
         ...newItem,
         id: Date.now().toString(), // Temporary ID
-        status: calculateItemStatus(newItem.expiryDate).status,
-        daysLeft: calculateItemStatus(newItem.expiryDate).daysLeft
+        expiryDate: fallbackExpiryDate,
+        status: calculateItemStatus(fallbackExpiryDate).status,
+        daysLeft: calculateItemStatus(fallbackExpiryDate).daysLeft
       }
-      setFridgeItems(prev => [...prev, fallbackItem])
+      setFridgeItems(prev => {
+        const matchIndex = prev.findIndex(item =>
+          item.name.toLowerCase() === fallbackItem.name.toLowerCase() &&
+          item.unit === fallbackItem.unit &&
+          item.expiryDate === fallbackItem.expiryDate &&
+          item.storageLocation === fallbackItem.storageLocation
+        )
+        if (matchIndex === -1) {
+          return [...prev, fallbackItem]
+        }
+        const next = [...prev]
+        next[matchIndex] = {
+          ...next[matchIndex],
+          quantity: (parseFloat(next[matchIndex].quantity) || 0) + (parseFloat(fallbackItem.quantity) || 0),
+          status: calculateItemStatus(fallbackItem.expiryDate).status,
+          daysLeft: calculateItemStatus(fallbackItem.expiryDate).daysLeft
+        }
+        return next
+      })
       
       // Show warning
       alert(`Đã lưu vào bộ nhớ tạm. Vui lòng kiểm tra kết nối database để đồng bộ dữ liệu.\n\nLỗi: ${error.message}`)

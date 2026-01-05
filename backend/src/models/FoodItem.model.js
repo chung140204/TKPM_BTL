@@ -34,6 +34,11 @@ const foodItemSchema = new mongoose.Schema({
     type: Number,
     default: null // Số ngày hết hạn trung bình
   },
+  defaultStorageLocation: {
+    type: String,
+    trim: true,
+    default: 'Ngăn mát'
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

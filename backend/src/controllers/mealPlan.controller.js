@@ -184,6 +184,8 @@ exports.generateShoppingListFromMealPlan = async (req, res, next) => {
         const key = `${foodItemId}_${unitId}`;
         const adjustedQuantity = ingredient.quantity * ratio;
 
+        const categoryId = ingredient.foodItemId.categoryId?._id || ingredient.foodItemId.categoryId || null;
+
         if (requiredIngredientsMap.has(key)) {
           requiredIngredientsMap.get(key).quantity += adjustedQuantity;
         } else {
@@ -192,7 +194,8 @@ exports.generateShoppingListFromMealPlan = async (req, res, next) => {
             unitId: unitId,
             quantity: adjustedQuantity,
             foodItemName: ingredient.foodItemId.name || 'Unknown',
-            unitName: ingredient.unitId.name || 'Unknown'
+            unitName: ingredient.unitId.name || 'Unknown',
+            categoryId: categoryId
           });
         }
       }
@@ -244,7 +247,8 @@ exports.generateShoppingListFromMealPlan = async (req, res, next) => {
           foodItemId: required.foodItemId,
           unitId: required.unitId,
           quantity: missing,
-          reason: 'expiring_soon' // Default reason for meal plan generated items
+          reason: 'expiring_soon', // Default reason for meal plan generated items
+          categoryId: required.categoryId || null
         });
       }
     }

@@ -37,7 +37,10 @@ async function apiRequest(endpoint, options = {}) {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       console.error('API Error Response:', errorData)
-      throw new Error(errorData.message || `API Error: ${response.status} ${response.statusText}`)
+      const error = new Error(errorData.message || `API Error: ${response.status} ${response.statusText}`)
+      error.status = response.status
+      error.data = errorData
+      throw error
     }
     
     const data = await response.json()
@@ -127,6 +130,60 @@ export async function getFridgeItems() {
     return response
   } catch (error) {
     console.error('Error fetching fridge items:', error)
+    throw error
+  }
+}
+
+// Category APIs
+export async function getCategories() {
+  try {
+    const response = await apiRequest('/categories')
+    return response
+  } catch (error) {
+    console.error('Error fetching categories:', error)
+    throw error
+  }
+}
+
+// Unit APIs
+export async function getUnits() {
+  try {
+    const response = await apiRequest('/units')
+    return response
+  } catch (error) {
+    console.error('Error fetching units:', error)
+    throw error
+  }
+}
+
+// FoodItem APIs
+export async function getFoodItems(search = '', includeInactive = false) {
+  try {
+    const params = new URLSearchParams()
+    if (search) {
+      params.set('search', search)
+    }
+    if (includeInactive) {
+      params.set('includeInactive', 'true')
+    }
+    const query = params.toString() ? `?${params.toString()}` : ''
+    const response = await apiRequest(`/food-items${query}`)
+    return response
+  } catch (error) {
+    console.error('Error fetching food items:', error)
+    throw error
+  }
+}
+
+export async function createFoodItem(foodItemData) {
+  try {
+    const response = await apiRequest('/food-items', {
+      method: 'POST',
+      body: foodItemData
+    })
+    return response
+  } catch (error) {
+    console.error('Error creating food item:', error)
     throw error
   }
 }
@@ -230,6 +287,9 @@ export async function createFridgeItemFromFrontend(item) {
         category: item.category,
         quantity: item.quantity, // Can be string like "1.8 kg"
         expiryDate: item.expiryDate,
+        purchaseDate: item.purchaseDate,
+        shelfLifeDays: item.shelfLifeDays,
+        saveToCatalog: item.saveToCatalog,
         storageLocation: item.storageLocation || 'Ngăn mát',
         price: item.price || 0
       }
@@ -250,6 +310,113 @@ export async function deleteFridgeItem(id) {
     return response
   } catch (error) {
     console.error('Error deleting fridge item:', error)
+    throw error
+  }
+}
+
+// ShoppingList APIs
+export async function getShoppingLists() {
+  try {
+    const response = await apiRequest('/shopping-lists')
+    return response
+  } catch (error) {
+    console.error('Error fetching shopping lists:', error)
+    throw error
+  }
+}
+
+export async function createShoppingList(shoppingListData) {
+  try {
+    const response = await apiRequest('/shopping-lists', {
+      method: 'POST',
+      body: shoppingListData
+    })
+    return response
+  } catch (error) {
+    console.error('Error creating shopping list:', error)
+    throw error
+  }
+}
+
+export async function updateShoppingListItem(listId, itemId, itemData) {
+  try {
+    const response = await apiRequest(`/shopping-lists/${listId}/item/${itemId}`, {
+      method: 'PUT',
+      body: itemData
+    })
+    return response
+  } catch (error) {
+    console.error('Error updating shopping list item:', error)
+    throw error
+  }
+}
+
+export async function updateShoppingList(listId, listData) {
+  try {
+    const response = await apiRequest(`/shopping-lists/${listId}`, {
+      method: 'PUT',
+      body: listData
+    })
+    return response
+  } catch (error) {
+    console.error('Error updating shopping list:', error)
+    throw error
+  }
+}
+
+export async function completeShoppingList(listId) {
+  try {
+    const response = await apiRequest(`/shopping-lists/${listId}/complete`, {
+      method: 'PUT'
+    })
+    return response
+  } catch (error) {
+    console.error('Error completing shopping list:', error)
+    throw error
+  }
+}
+
+export async function deleteShoppingList(listId) {
+  try {
+    const response = await apiRequest(`/shopping-lists/${listId}`, {
+      method: 'DELETE'
+    })
+    return response
+  } catch (error) {
+    console.error('Error deleting shopping list:', error)
+    throw error
+  }
+}
+
+// Recipe APIs
+export async function getSuggestedRecipes() {
+  try {
+    const response = await apiRequest('/recipes/suggest')
+    return response
+  } catch (error) {
+    console.error('Error fetching suggested recipes:', error)
+    throw error
+  }
+}
+
+export async function checkRecipeIngredients(recipeId) {
+  try {
+    const response = await apiRequest(`/recipes/${recipeId}/check-ingredients`)
+    return response
+  } catch (error) {
+    console.error('Error checking recipe ingredients:', error)
+    throw error
+  }
+}
+
+export async function cookRecipeApi(recipeId) {
+  try {
+    const response = await apiRequest(`/recipes/${recipeId}/cook`, {
+      method: 'POST'
+    })
+    return response
+  } catch (error) {
+    console.error('Error cooking recipe:', error)
     throw error
   }
 }

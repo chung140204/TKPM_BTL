@@ -156,28 +156,49 @@ export function Dashboard() {
   // Check if we're using real data from database
   const isUsingDatabaseData = dashboardData !== null && !error
 
+  const fallbackChanges = {
+    totalFridgeItems: 12,
+    expiringSoon: -5,
+    shoppingListCount: 2
+  }
+
+  const changeData = data.changes || {}
+
+  const getChangePercent = (value, fallback) => (
+    Number.isFinite(value) ? value : fallback
+  )
+
+  const formatPercentChange = (value) => {
+    if (value === 0) return "0%"
+    return `${value > 0 ? "+" : ""}${value}%`
+  }
+
+  const totalFridgeChange = getChangePercent(changeData.totalFridgeItems?.percent, fallbackChanges.totalFridgeItems)
+  const expiringSoonChange = getChangePercent(changeData.expiringSoon?.percent, fallbackChanges.expiringSoon)
+  const shoppingListChange = getChangePercent(changeData.shoppingListCount?.percent, fallbackChanges.shoppingListCount)
+
   const stats = [
     {
       title: "Tổng thực phẩm",
       value: data.totalFridgeItems,
       icon: Refrigerator,
-      change: "+12%",
-      trend: "up",
+      change: formatPercentChange(totalFridgeChange),
+      trend: totalFridgeChange >= 0 ? "up" : "down",
     },
     {
       title: "Sắp hết hạn",
       value: data.expiringSoon,
       icon: AlertTriangle,
-      change: "-5%",
-      trend: "down",
+      change: formatPercentChange(expiringSoonChange),
+      trend: expiringSoonChange >= 0 ? "up" : "down",
       variant: "warning",
     },
     {
       title: "Danh sách mua sắm",
       value: data.shoppingListCount,
       icon: ShoppingCart,
-      change: "+2",
-      trend: "up",
+      change: formatPercentChange(shoppingListChange),
+      trend: shoppingListChange >= 0 ? "up" : "down",
     },
     {
       title: "Giảm lãng phí",

@@ -72,8 +72,16 @@ exports.createAutoShoppingList = async (req, res, next) => {
       await shoppingList.save();
       
       await shoppingList.populate([
-        { path: 'items.foodItemId', select: 'name categoryId image' },
-        { path: 'items.unitId', select: 'name abbreviation' }
+        {
+          path: 'items.foodItemId',
+          select: 'name categoryId image',
+          populate: {
+            path: 'categoryId',
+            select: 'name'
+          }
+        },
+        { path: 'items.unitId', select: 'name abbreviation' },
+        { path: 'items.categoryId', select: 'name' }
       ]);
 
       return res.json({
@@ -96,8 +104,16 @@ exports.createAutoShoppingList = async (req, res, next) => {
       });
 
       await shoppingList.populate([
-        { path: 'items.foodItemId', select: 'name categoryId image' },
-        { path: 'items.unitId', select: 'name abbreviation' }
+        {
+          path: 'items.foodItemId',
+          select: 'name categoryId image',
+          populate: {
+            path: 'categoryId',
+            select: 'name'
+          }
+        },
+        { path: 'items.unitId', select: 'name abbreviation' },
+        { path: 'items.categoryId', select: 'name' }
       ]);
 
       return res.status(201).json({
@@ -132,8 +148,16 @@ exports.getShoppingLists = async (req, res, next) => {
     const userId = req.user.id;
 
     const shoppingLists = await ShoppingList.find({ userId })
-      .populate('items.foodItemId', 'name image')
+      .populate({
+        path: 'items.foodItemId',
+        select: 'name image categoryId',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      })
       .populate('items.unitId', 'name abbreviation')
+      .populate('items.categoryId', 'name')
       .sort({ createdAt: -1 }); // Mới nhất trước
 
     res.json({
@@ -159,8 +183,16 @@ exports.getShoppingListById = async (req, res, next) => {
       _id: req.params.id,
       userId: req.user.id
     })
-      .populate('items.foodItemId', 'name categoryId image')
-      .populate('items.unitId', 'name abbreviation');
+      .populate({
+        path: 'items.foodItemId',
+        select: 'name categoryId image',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      })
+      .populate('items.unitId', 'name abbreviation')
+      .populate('items.categoryId', 'name');
 
     if (!shoppingList) {
       return res.status(404).json({
@@ -230,8 +262,16 @@ exports.updateShoppingListItem = async (req, res, next) => {
 
     // Populate để trả về đầy đủ thông tin
     await shoppingList.populate([
-      { path: 'items.foodItemId', select: 'name categoryId image' },
-      { path: 'items.unitId', select: 'name abbreviation' }
+      {
+        path: 'items.foodItemId',
+        select: 'name categoryId image',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      },
+      { path: 'items.unitId', select: 'name abbreviation' },
+      { path: 'items.categoryId', select: 'name' }
     ]);
 
     res.json({
@@ -272,7 +312,7 @@ exports.completeShoppingList = async (req, res, next) => {
       _id: req.params.id,
       userId: userId
     })
-      .populate('items.foodItemId', 'name')
+      .populate('items.foodItemId', 'name averageExpiryDays')
       .populate('items.unitId', 'name');
 
     if (!shoppingList) {
@@ -310,22 +350,32 @@ exports.completeShoppingList = async (req, res, next) => {
         continue;
       }
 
-      // Tính expiryDate: sử dụng expiryDate từ item nếu có, nếu không thì mặc định 7 ngày từ bây giờ
+      // Tính expiryDate: dùng expiryDate nếu có, nếu không thì dùng averageExpiryDays hoặc mặc định 7 ngày
       let expiryDate;
       if (item.expiryDate) {
         expiryDate = new Date(item.expiryDate);
       } else {
-        // Default: 7 ngày từ bây giờ
+        const averageExpiryDays = item.foodItemId?.averageExpiryDays;
+        const fallbackDays = averageExpiryDays && averageExpiryDays > 0 ? averageExpiryDays : 7;
         expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + 7);
+        expiryDate.setDate(expiryDate.getDate() + fallbackDays);
       }
+
+      const expiryDateStart = new Date(expiryDate);
+      expiryDateStart.setHours(0, 0, 0, 0);
+      const expiryDateEnd = new Date(expiryDateStart);
+      expiryDateEnd.setDate(expiryDateEnd.getDate() + 1);
 
       // Kiểm tra xem đã có FridgeItem với cùng userId, foodItemId, expiryDate chưa
       // (và status không phải 'used_up')
+      const storageLocationValue = item.foodItemId?.defaultStorageLocation || 'Ngăn mát';
+
       const existingFridgeItem = await FridgeItem.findOne({
         userId: userId,
         foodItemId: item.foodItemId._id,
-        expiryDate: expiryDate,
+        unitId: item.unitId._id,
+        expiryDate: { $gte: expiryDateStart, $lt: expiryDateEnd },
+        storageLocation: storageLocationValue,
         status: { $ne: 'used_up' }
       })
         .populate('foodItemId', 'name')
@@ -354,7 +404,8 @@ exports.completeShoppingList = async (req, res, next) => {
           foodItemId: item.foodItemId._id,
           quantity: item.quantity,
           unitId: item.unitId._id,
-          expiryDate: expiryDate,
+          expiryDate: expiryDateStart,
+          storageLocation: storageLocationValue,
           source: 'shopping_list',
           sourceShoppingListId: shoppingList._id,
           purchaseDate: new Date(),
@@ -388,8 +439,16 @@ exports.completeShoppingList = async (req, res, next) => {
 
     // Populate để trả về đầy đủ thông tin
     await shoppingList.populate([
-      { path: 'items.foodItemId', select: 'name categoryId image' },
-      { path: 'items.unitId', select: 'name abbreviation' }
+      {
+        path: 'items.foodItemId',
+        select: 'name categoryId image',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      },
+      { path: 'items.unitId', select: 'name abbreviation' },
+      { path: 'items.categoryId', select: 'name' }
     ]);
 
     res.json({
@@ -418,20 +477,29 @@ exports.completeShoppingList = async (req, res, next) => {
  */
 exports.createShoppingList = async (req, res, next) => {
   try {
-    const { name, items, plannedDate } = req.body;
+    const { name, items, plannedDate, familyGroupId } = req.body;
 
     const shoppingList = await ShoppingList.create({
       userId: req.user.id,
       name: name || `Danh sách mua sắm - ${new Date().toLocaleDateString('vi-VN')}`,
       items: items || [],
       plannedDate: plannedDate || new Date(),
+      familyGroupId: familyGroupId || null,
       status: 'draft',
       isAutoGenerated: false
     });
 
     await shoppingList.populate([
-      { path: 'items.foodItemId', select: 'name categoryId image' },
-      { path: 'items.unitId', select: 'name abbreviation' }
+      {
+        path: 'items.foodItemId',
+        select: 'name categoryId image',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      },
+      { path: 'items.unitId', select: 'name abbreviation' },
+      { path: 'items.categoryId', select: 'name' }
     ]);
 
     // Tự động tạo notification cho family members (nếu có familyGroupId)
@@ -485,8 +553,16 @@ exports.updateShoppingList = async (req, res, next) => {
     await shoppingList.save();
 
     await shoppingList.populate([
-      { path: 'items.foodItemId', select: 'name categoryId image' },
-      { path: 'items.unitId', select: 'name abbreviation' }
+      {
+        path: 'items.foodItemId',
+        select: 'name categoryId image',
+        populate: {
+          path: 'categoryId',
+          select: 'name'
+        }
+      },
+      { path: 'items.unitId', select: 'name abbreviation' },
+      { path: 'items.categoryId', select: 'name' }
     ]);
 
     res.json({

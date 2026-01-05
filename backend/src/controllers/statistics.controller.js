@@ -4,6 +4,7 @@ const Recipe = require('../models/Recipe.model');
 const Notification = require('../models/Notification.model');
 const FoodItem = require('../models/FoodItem.model');
 const Category = require('../models/Category.model');
+const ConsumptionLog = require('../models/ConsumptionLog.model');
 const mongoose = require('mongoose');
 
 // Helper function để tính date range dựa trên period
@@ -292,13 +293,21 @@ exports.getConsumptionStatistics = async (req, res, next) => {
     })
       .populate('items.foodItemId', 'name');
 
-    // 2. Lấy used items từ fridge items (status = used_up)
-    const usedItems = await FridgeItem.find({
+    // 2. Lấy used items từ consumption logs (ưu tiên), fallback to used_up nếu chưa có log
+    const consumptionLogs = await ConsumptionLog.find({
       userId: userId,
-      status: 'used_up',
-      updatedAt: { $gte: startDate, $lte: endDate }
+      createdAt: { $gte: startDate, $lte: endDate }
     })
       .populate('foodItemId', 'name');
+
+    const usedItems = consumptionLogs.length === 0
+      ? await FridgeItem.find({
+          userId: userId,
+          status: 'used_up',
+          updatedAt: { $gte: startDate, $lte: endDate }
+        })
+          .populate('foodItemId', 'name')
+      : [];
 
     // 3. Lấy wasted items (status = expired)
     const wastedItems = await FridgeItem.find({
@@ -325,7 +334,30 @@ exports.getConsumptionStatistics = async (req, res, next) => {
       });
     });
 
-    // Process used items
+    // Process used items from logs
+    consumptionLogs.forEach(log => {
+      if (!log.foodItemId) return;
+      const dateKey = log.createdAt.toISOString().split('T')[0];
+      if (!dateMap.has(dateKey)) {
+        dateMap.set(dateKey, { date: dateKey, purchased: 0, used: 0, wasted: 0 });
+      }
+      dateMap.get(dateKey).used += log.quantity;
+
+      const foodItemId = log.foodItemId._id.toString();
+      if (itemUsageMap.has(foodItemId)) {
+        itemUsageMap.get(foodItemId).timesUsed += 1;
+        itemUsageMap.get(foodItemId).totalQuantity += log.quantity;
+      } else {
+        itemUsageMap.set(foodItemId, {
+          foodItemId: foodItemId,
+          foodItemName: log.foodItemId.name,
+          timesUsed: 1,
+          totalQuantity: log.quantity
+        });
+      }
+    });
+
+    // Fallback: Process used items from used_up fridge items if no logs
     usedItems.forEach(item => {
       if (!item.foodItemId) return;
       const dateKey = item.updatedAt.toISOString().split('T')[0];
@@ -334,7 +366,6 @@ exports.getConsumptionStatistics = async (req, res, next) => {
       }
       dateMap.get(dateKey).used += item.quantity;
 
-      // Track item usage
       const foodItemId = item.foodItemId._id.toString();
       if (itemUsageMap.has(foodItemId)) {
         itemUsageMap.get(foodItemId).timesUsed += 1;
@@ -509,10 +540,9 @@ exports.getDashboardOverview = async (req, res, next) => {
       status: 'expiring_soon'
     });
 
-    // 3. Số danh sách mua sắm đang active
+    // 3. Số danh sách mua sắm (không phân biệt trạng thái)
     const shoppingListCount = await ShoppingList.countDocuments({
-      userId: userId,
-      status: 'active'
+      userId: userId
     });
 
     // 4. Tính waste reduction (so sánh tháng này vs tháng trước)
@@ -520,6 +550,16 @@ exports.getDashboardOverview = async (req, res, next) => {
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    const calculatePercentChange = (currentValue, previousValue) => {
+      if (previousValue > 0) {
+        return Math.round(((currentValue - previousValue) / previousValue) * 100);
+      }
+      if (currentValue === 0) {
+        return 0;
+      }
+      return 100;
+    };
 
     // Waste tháng này
     const thisMonthWaste = await FridgeItem.aggregate([
@@ -567,7 +607,61 @@ exports.getDashboardOverview = async (req, res, next) => {
       wasteReduction = 100; // Không có waste tháng này nhưng có tháng trước
     }
 
-    // 5. Lấy waste data theo tháng (6 tháng gần nhất)
+    // 5. Tính thay đổi theo tháng cho các chỉ số chính
+    const [
+      fridgeItemsThisMonth,
+      fridgeItemsLastMonth,
+      expiringSoonThisMonth,
+      expiringSoonLastMonth,
+      shoppingListsThisMonth,
+      shoppingListsLastMonth
+    ] = await Promise.all([
+      FridgeItem.countDocuments({
+        userId: userId,
+        status: { $ne: 'used_up' },
+        createdAt: { $gte: thisMonthStart }
+      }),
+      FridgeItem.countDocuments({
+        userId: userId,
+        status: { $ne: 'used_up' },
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
+      }),
+      FridgeItem.countDocuments({
+        userId: userId,
+        status: 'expiring_soon',
+        createdAt: { $gte: thisMonthStart }
+      }),
+      FridgeItem.countDocuments({
+        userId: userId,
+        status: 'expiring_soon',
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
+      }),
+      ShoppingList.countDocuments({
+        userId: userId,
+        createdAt: { $gte: thisMonthStart }
+      }),
+      ShoppingList.countDocuments({
+        userId: userId,
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
+      })
+    ]);
+
+    const changes = {
+      totalFridgeItems: {
+        diff: fridgeItemsThisMonth - fridgeItemsLastMonth,
+        percent: calculatePercentChange(fridgeItemsThisMonth, fridgeItemsLastMonth)
+      },
+      expiringSoon: {
+        diff: expiringSoonThisMonth - expiringSoonLastMonth,
+        percent: calculatePercentChange(expiringSoonThisMonth, expiringSoonLastMonth)
+      },
+      shoppingListCount: {
+        diff: shoppingListsThisMonth - shoppingListsLastMonth,
+        percent: calculatePercentChange(shoppingListsThisMonth, shoppingListsLastMonth)
+      }
+    };
+
+    // 6. Lấy waste data theo tháng (6 tháng gần nhất)
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const wasteDataByMonth = await FridgeItem.aggregate([
       {
@@ -605,7 +699,7 @@ exports.getDashboardOverview = async (req, res, next) => {
       filledWasteData.push(existing || { month: monthNames[i], waste: 0 });
     }
 
-    // 6. Phân bố theo danh mục (từ fridge items)
+    // 7. Phân bố theo danh mục (từ fridge items)
     const categoryDistribution = await FridgeItem.aggregate([
       {
         $match: {
@@ -671,6 +765,7 @@ exports.getDashboardOverview = async (req, res, next) => {
         expiringSoon,
         shoppingListCount,
         wasteReduction,
+        changes,
         wasteData: filledWasteData,
         categoryData
       }
@@ -842,4 +937,3 @@ exports.getRecentActivities = async (req, res, next) => {
     });
   }
 };
-

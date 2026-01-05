@@ -16,6 +16,7 @@ const fridgeItemRoutes = require('./src/routes/fridgeItem.routes');
 const recipeRoutes = require('./src/routes/recipe.routes');
 const mealPlanRoutes = require('./src/routes/mealPlan.routes');
 const categoryRoutes = require('./src/routes/category.routes');
+const foodItemRoutes = require('./src/routes/foodItem.routes');
 const unitRoutes = require('./src/routes/unit.routes');
 const familyGroupRoutes = require('./src/routes/familyGroup.routes');
 const notificationRoutes = require('./src/routes/notification.routes');
@@ -51,12 +52,14 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
-});
-app.use('/api/', limiter);
+// Rate limiting (skip in development)
+if (process.env.NODE_ENV !== 'development') {
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100 // limit each IP to 100 requests per windowMs
+  });
+  app.use('/api/', limiter);
+}
 
 // Body parser middleware
 app.use(express.json());
@@ -95,6 +98,7 @@ app.use('/api/fridge-items', fridgeItemRoutes);
 app.use('/api/recipes', recipeRoutes);
 app.use('/api/meal-plans', mealPlanRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/food-items', foodItemRoutes);
 app.use('/api/units', unitRoutes);
 app.use('/api/family-groups', familyGroupRoutes);
 app.use('/api/notifications', notificationRoutes);
@@ -113,11 +117,10 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 module.exports = app;
-

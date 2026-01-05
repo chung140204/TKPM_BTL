@@ -2,49 +2,98 @@ import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
 import { Button } from "@/components/ui/Button"
-import { mockRecipes, mockFridgeItems as initialMockFridgeItems } from "@/data/mockData"
 import { Heart, ChefHat, Clock, Users, CheckCircle2, XCircle } from "lucide-react"
 import { useSearch } from "@/components/Layout/MainLayout"
 import { RecipeDetailDialog } from "@/components/RecipeDetailDialog"
 import { IngredientFilter } from "@/components/IngredientFilter"
-
-const FRIDGE_STORAGE_KEY = "fridge_items"
-
-// Load fridge items from localStorage (hoặc mock data nếu chưa có)
-function loadFridgeItemsForRecipes() {
-  try {
-    const saved = localStorage.getItem(FRIDGE_STORAGE_KEY)
-    if (saved) {
-      return JSON.parse(saved)
-    }
-  } catch (error) {
-    console.error("Error loading fridge items for recipes:", error)
-  }
-  return initialMockFridgeItems
-}
+import { getFridgeItems, getSuggestedRecipes } from "@/utils/api"
 
 export function Recipes() {
   const searchQuery = useSearch() || ""
-  const [fridgeItems, setFridgeItems] = useState(() => loadFridgeItemsForRecipes())
-  const [favorites, setFavorites] = useState(
-    mockRecipes.filter(r => r.isFavorite).map(r => r.id)
-  )
+  const [fridgeItems, setFridgeItems] = useState([])
+  const [recipes, setRecipes] = useState([])
+  const [favorites, setFavorites] = useState([])
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [selectedIngredients, setSelectedIngredients] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   // Listen for fridge items updates (after cooking)
   useEffect(() => {
     const handleFridgeUpdate = () => {
-      // Reload fridge items from localStorage
-      const updated = loadFridgeItemsForRecipes()
-      setFridgeItems(updated)
+      fetchRecipesAndFridge()
     }
 
     window.addEventListener('fridgeItemsUpdated', handleFridgeUpdate)
     return () => {
       window.removeEventListener('fridgeItemsUpdated', handleFridgeUpdate)
     }
+  }, [])
+
+  const normalizeIngredient = (ingredient, preferMissing) => {
+    const name = ingredient?.name || ingredient?.foodItemName || "Unknown"
+    const unit = ingredient?.unitName || ingredient?.unit || ""
+    let quantity = ingredient?.quantity
+
+    if (preferMissing) {
+      quantity = ingredient?.missingQuantity ?? ingredient?.quantityMissing ?? ingredient?.requiredQuantity ?? ingredient?.quantity
+    } else {
+      quantity = ingredient?.requiredQuantity ?? ingredient?.quantityRequired ?? ingredient?.quantity
+    }
+
+    const quantityLabel = quantity !== undefined && quantity !== null && quantity !== ""
+      ? (unit ? `${quantity} ${unit}` : `${quantity}`)
+      : ""
+
+    return {
+      ...ingredient,
+      name,
+      quantity: quantityLabel
+    }
+  }
+
+  const normalizeRecipe = (recipe) => ({
+    id: recipe.recipeId || recipe._id || recipe.id,
+    name: recipe.name || recipe.recipeName || "Không tên",
+    description: recipe.description || "",
+    image: recipe.image || "",
+    servings: recipe.servings || 0,
+    prepTime: recipe.prepTime || 0,
+    cookTime: recipe.cookTime || 0,
+    difficulty: recipe.difficulty || "medium",
+    category: recipe.category || "Khác",
+    matchPercentage: recipe.matchPercentage || 0,
+    availableIngredients: (recipe.availableIngredients || []).map(ing => normalizeIngredient(ing, false)),
+    missingIngredients: (recipe.missingIngredients || []).map(ing => normalizeIngredient(ing, true)),
+    instructions: recipe.instructions || []
+  })
+
+  const fetchRecipesAndFridge = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const [recipesRes, fridgeRes] = await Promise.all([
+        getSuggestedRecipes(),
+        getFridgeItems()
+      ])
+
+      const fetchedRecipes = recipesRes.data?.recipes || []
+      const fetchedFridge = fridgeRes.data?.fridgeItems || []
+
+      setRecipes(fetchedRecipes.map(normalizeRecipe))
+      setFridgeItems(fetchedFridge)
+    } catch (err) {
+      console.error("Error fetching recipes:", err)
+      setError(err.message || "Không thể tải gợi ý món ăn")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchRecipesAndFridge()
   }, [])
 
   const toggleFavorite = (id) => {
@@ -62,8 +111,9 @@ export function Recipes() {
   const availableIngredientNames = useMemo(() => {
     const names = new Set()
     fridgeItems.forEach(item => {
-      if (item.name && item.quantity > 0) {
-        names.add(item.name)
+      const name = item.foodItemId?.name || item.name
+      if (name && item.quantity > 0) {
+        names.add(name)
       }
     })
     return Array.from(names).sort()
@@ -71,54 +121,16 @@ export function Recipes() {
 
   // Filter recipes by search query
   const filteredRecipes = searchQuery
-    ? mockRecipes.filter(recipe =>
+    ? recipes.filter(recipe =>
         recipe.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         recipe.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         recipe.category.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : mockRecipes
-
-  // Tính toán lại available / missing ingredients dựa trên dữ liệu tủ lạnh (theo tên nguyên liệu)
-  const fridgeNameSet = new Set(
-    fridgeItems.map(item => item.name.toLowerCase())
-  )
-
-  // Calculate recipes with availability
-  let recipesWithAvailability = filteredRecipes.map((recipe) => {
-    const allRequired = [
-      ...(recipe.availableIngredients || []),
-      ...(recipe.missingIngredients || []),
-    ]
-
-    const availableIngredients = []
-    const missingIngredients = []
-
-    allRequired.forEach((ing) => {
-      const key = ing.name.toLowerCase()
-      if (fridgeNameSet.has(key)) {
-        availableIngredients.push(ing)
-      } else {
-        missingIngredients.push(ing)
-      }
-    })
-
-    const total = allRequired.length || 1
-    const matchPercentage = Math.round((availableIngredients.length / total) * 100)
-
-    return {
-      ...recipe,
-      availableIngredients,
-      missingIngredients,
-      matchPercentage,
-    }
-  })
+    : recipes
 
   // Filter by selected ingredients (if any)
+  let recipesWithAvailability = filteredRecipes
   if (selectedIngredients.length > 0) {
-    const selectedIngredientSet = new Set(
-      selectedIngredients.map(ing => ing.toLowerCase())
-    )
-
     recipesWithAvailability = recipesWithAvailability
       .map(recipe => {
         // Check how many selected ingredients match this recipe
@@ -147,9 +159,6 @@ export function Recipes() {
         // Sort by matchPercentage descending (all recipes already have all selected ingredients)
         return b.matchPercentage - a.matchPercentage
       })
-  } else {
-    // No ingredient filter: sort by matchPercentage descending
-    recipesWithAvailability.sort((a, b) => b.matchPercentage - a.matchPercentage)
   }
 
   const handleSelectIngredient = (ingredient) => {
@@ -205,8 +214,21 @@ export function Recipes() {
         </Card>
       )}
 
-      {/* Recipes Grid */}
-      {recipesWithAvailability.length === 0 ? (
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-6 text-sm text-red-700">
+            {error}
+          </CardContent>
+        </Card>
+      )}
+
+      {loading ? (
+        <Card>
+          <CardContent className="p-12 text-center text-muted-foreground">
+            Đang tải gợi ý món ăn...
+          </CardContent>
+        </Card>
+      ) : recipesWithAvailability.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
             <p className="text-muted-foreground">

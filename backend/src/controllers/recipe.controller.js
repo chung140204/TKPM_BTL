@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Recipe = require('../models/Recipe.model');
 const FridgeItem = require('../models/FridgeItem.model');
 const Notification = require('../models/Notification.model');
+const ConsumptionLog = require('../models/ConsumptionLog.model');
 // Require các models liên quan để Mongoose có thể populate
 require('../models/FoodItem.model');
 require('../models/Unit.model');
@@ -707,6 +708,7 @@ exports.cookRecipe = async (req, res, next) => {
 
     // 6. Trừ quantity từ FridgeItem (ưu tiên dùng thực phẩm sắp hết hạn trước)
     const updatedFridgeItems = [];
+    const consumptionLogs = [];
     
     for (const { ingredient, availableItems, requiredQuantity } of ingredientsToUse) {
       let remainingToSubtract = requiredQuantity;
@@ -730,6 +732,26 @@ exports.cookRecipe = async (req, res, next) => {
         
         await fridgeItem.save();
         updatedFridgeItems.push(fridgeItem);
+
+        if (subtractAmount > 0) {
+          consumptionLogs.push({
+            userId: userId,
+            foodItemId: fridgeItem.foodItemId?._id || ingredient.foodItemId._id,
+            unitId: fridgeItem.unitId?._id || ingredient.unitId._id,
+            fridgeItemId: fridgeItem._id,
+            quantity: subtractAmount,
+            source: 'recipe',
+            recipeId: recipe._id
+          });
+        }
+      }
+    }
+
+    if (consumptionLogs.length > 0) {
+      try {
+        await ConsumptionLog.insertMany(consumptionLogs);
+      } catch (logError) {
+        console.error('Error logging consumption:', logError);
       }
     }
 
@@ -773,4 +795,3 @@ exports.cookRecipe = async (req, res, next) => {
     });
   }
 };
-
