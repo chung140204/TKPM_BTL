@@ -84,6 +84,33 @@ export async function login(email, password) {
   }
 }
 
+export async function changePassword(currentPassword, newPassword) {
+  try {
+    const response = await apiRequest('/auth/change-password', {
+      method: 'POST',
+      body: { currentPassword, newPassword },
+    })
+    return response
+  } catch (error) {
+    console.error('Error changing password:', error)
+    throw error
+  }
+}
+
+// Register API
+export async function register(email, password, fullName, phone) {
+  try {
+    const response = await apiRequest('/auth/register', {
+      method: 'POST',
+      body: { email, password, fullName, phone },
+    })
+    return response
+  } catch (error) {
+    console.error('Error registering user:', error)
+    throw error
+  }
+}
+
 // Dashboard API
 export async function getDashboardOverview() {
   try {

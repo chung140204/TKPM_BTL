@@ -3,12 +3,15 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext"
 import { ToastProvider } from "@/components/ui/Toast"
 import { MainLayout } from "@/components/Layout/MainLayout"
 import { Login } from "@/pages/Login"
+import { Register } from "@/pages/Register"
 import { Dashboard } from "@/pages/Dashboard"
 import { Fridge } from "@/pages/Fridge"
 import { Recipes } from "@/pages/Recipes"
 import { Shopping } from "@/pages/Shopping"
 import { Statistics } from "@/pages/Statistics"
 import { MealPlanner } from "@/pages/MealPlanner"
+import { Profile } from "@/pages/Profile"
+import { ChangePassword } from "@/pages/ChangePassword"
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth()
@@ -19,12 +22,33 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
       <Route
         path="/"
         element={
           <ProtectedRoute>
             <MainLayout>
               <Dashboard />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <Profile />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/change-password"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <ChangePassword />
             </MainLayout>
           </ProtectedRoute>
         }

@@ -4,20 +4,23 @@ import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Label } from "@/components/ui/Label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
-import { ShoppingCart, Loader2, Mail, Lock, Leaf } from "lucide-react"
+import { ShoppingCart, Loader2, Mail, Lock, Phone, User, Leaf } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
-import { login as apiLogin } from "@/utils/api"
+import { register as apiRegister } from "@/utils/api"
+import { showToast } from "@/components/ui/Toast"
 
-export function Login() {
+export function Register() {
+  const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [rememberMe, setRememberMe] = useState(false)
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [phone, setPhone] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const navigate = useNavigate()
-  const { login, isAuthenticated } = useAuth()
+  const { isAuthenticated } = useAuth()
 
-  // Redirect if already authenticated
+  // Nếu đã đăng nhập thì chuyển về trang chủ
   useEffect(() => {
     if (isAuthenticated) {
       navigate("/")
@@ -29,34 +32,25 @@ export function Login() {
     setLoading(true)
     setError(null)
 
+    if (password !== confirmPassword) {
+      setError("Mật khẩu xác nhận không khớp")
+      setLoading(false)
+      return
+    }
+
     try {
-      // Try to login via API
-      const response = await apiLogin(email, password)
-      
-      if (response.success && response.data) {
-        // Save token
-        if (response.data.token) {
-          localStorage.setItem('authToken', response.data.token)
-          localStorage.setItem('token', response.data.token) // Also save as 'token' for compatibility
-        }
-        
-        // Update auth context with user info if available
-        login(response.data.user)
-        navigate("/")
+      const response = await apiRegister(email, password, fullName, phone || undefined)
+
+      if (response.success) {
+        // Thông báo đăng ký thành công và chuyển về màn hình đăng nhập
+        showToast("Đăng ký tài khoản thành công. Vui lòng đăng nhập bằng tài khoản vừa tạo.", "success")
+        navigate("/login")
       } else {
-        throw new Error(response.message || 'Đăng nhập thất bại')
+        throw new Error(response.message || "Đăng ký thất bại")
       }
     } catch (err) {
-      console.error('Login error:', err)
-      // Fallback to mock login if API fails
-      if (err.message.includes('Failed to fetch') || err.message.includes('API Error')) {
-        // API not available, use mock login with fallback user
-        console.warn('API not available, using mock login')
-        login({ fullName: 'Demo User', email })
-        navigate("/")
-      } else {
-        setError(err.message || 'Đăng nhập thất bại. Vui lòng thử lại.')
-      }
+      console.error("Register error:", err)
+      setError(err.message || "Đăng ký thất bại. Vui lòng thử lại.")
     } finally {
       setLoading(false)
     }
@@ -74,14 +68,14 @@ export function Login() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-emerald-700">Smart Grocery</p>
-                <p className="text-xs text-emerald-900/70">Quản lý thực phẩm thông minh – Giảm lãng phí</p>
+                <p className="text-xs text-emerald-900/70">Bắt đầu quản lý thực phẩm thông minh</p>
               </div>
             </div>
 
             <div className="flex-1 flex items-center justify-center">
               <div className="w-full max-w-sm rounded-3xl bg-white/80 backdrop-blur shadow-lg border border-emerald-100 px-6 py-8">
                 <div className="relative mx-auto h-64 w-64">
-                  {/* Illustration built from Lucide icons */}
+                  {/* Illustration similar style to Login */}
                   <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-emerald-50 to-emerald-100" />
                   <div className="absolute inset-4 rounded-3xl border border-emerald-100 bg-white/70 shadow-inner" />
                   <div className="absolute left-4 right-4 top-6 h-3 rounded-full bg-emerald-100" />
@@ -89,9 +83,9 @@ export function Login() {
                   <div className="absolute right-6 top-10 h-8 w-3 rounded bg-emerald-200" />
                   <div className="absolute inset-x-8 top-16 h-1 bg-emerald-100 rounded-full" />
 
-                  <div className="absolute left-10 bottom-14 flex items-center gap-2">
+                  <div className="absolute left-9 bottom-14 flex items-center gap-2">
                     <div className="h-14 w-14 rounded-2xl bg-emerald-100 flex items-center justify-center shadow-sm border border-emerald-200">
-                      <ShoppingCart className="h-8 w-8 text-emerald-500" />
+                      <User className="h-8 w-8 text-emerald-500" />
                     </div>
                     <div className="h-12 w-12 rounded-2xl bg-emerald-50 flex items-center justify-center shadow-sm border border-emerald-200">
                       <Leaf className="h-7 w-7 text-emerald-500" />
@@ -110,7 +104,7 @@ export function Login() {
             </div>
           </div>
 
-          {/* Right login card */}
+          {/* Right register card */}
           <div className="w-full">
             <Card className="w-full shadow-xl rounded-3xl border border-emerald-100 bg-white/95 backdrop-blur">
               <CardHeader className="space-y-1">
@@ -121,7 +115,7 @@ export function Login() {
                     </div>
                     <div>
                       <CardTitle className="text-2xl font-bold text-slate-900">
-                        Đăng nhập hệ thống
+                        Tạo tài khoản mới
                       </CardTitle>
                       <CardDescription className="text-sm text-slate-500">
                         Smart Grocery & Meal Planning System
@@ -132,6 +126,23 @@ export function Login() {
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-5">
+                  <div className="space-y-2">
+                    <Label htmlFor="fullName">Họ và tên</Label>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <User className="h-4 w-4" />
+                      </span>
+                      <Input
+                        id="fullName"
+                        type="text"
+                        placeholder="Nguyễn Văn A"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        required
+                        className="pl-9 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-0 focus-visible:border-emerald-500"
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
                     <div className="relative">
@@ -166,25 +177,46 @@ export function Login() {
                       />
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        id="remember"
-                        checked={rememberMe}
-                        onChange={(e) => setRememberMe(e.target.checked)}
-                        className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword">Xác nhận mật khẩu</Label>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <Lock className="h-4 w-4" />
+                      </span>
+                      <Input
+                        id="confirmPassword"
+                        type="password"
+                        placeholder="••••••••"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                        className="pl-9 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-0 focus-visible:border-emerald-500"
                       />
-                      <Label htmlFor="remember" className="text-sm font-normal cursor-pointer text-slate-600">
-                        Ghi nhớ đăng nhập
-                      </Label>
                     </div>
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Số điện thoại (tuỳ chọn)</Label>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <Phone className="h-4 w-4" />
+                      </span>
+                      <Input
+                        id="phone"
+                        type="tel"
+                        placeholder="0123 456 789"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="pl-9 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-0 focus-visible:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+
                   {error && (
                     <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
                       <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
                     </div>
                   )}
+
                   <Button
                     type="submit"
                     className="w-full bg-emerald-500 hover:bg-emerald-600 text-white shadow-md hover:shadow-lg transition-all duration-150"
@@ -194,16 +226,17 @@ export function Login() {
                     {loading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Đang đăng nhập...
+                        Đang tạo tài khoản...
                       </>
                     ) : (
-                      "Đăng nhập"
+                      "Đăng ký"
                     )}
                   </Button>
+
                   <p className="mt-1 text-center text-sm text-muted-foreground">
-                    Chưa có tài khoản?{" "}
-                    <Link to="/register" className="font-medium text-emerald-600 hover:text-emerald-700 hover:underline">
-                      Đăng ký
+                    Đã có tài khoản?{" "}
+                    <Link to="/login" className="font-medium text-emerald-600 hover:text-emerald-700 hover:underline">
+                      Đăng nhập
                     </Link>
                   </p>
                 </form>
@@ -219,4 +252,5 @@ export function Login() {
     </div>
   )
 }
+
 

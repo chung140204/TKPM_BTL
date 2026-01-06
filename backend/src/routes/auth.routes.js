@@ -52,6 +52,23 @@ router.get('/me', auth, authController.getMe);
  */
 router.post('/logout', auth, authController.logout);
 
+/**
+ * @route   POST /api/auth/change-password
+ * @desc    Đổi mật khẩu
+ * @access  Private
+ */
+router.post(
+  '/change-password',
+  auth,
+  [
+    body('currentPassword').notEmpty().withMessage('Mật khẩu hiện tại là bắt buộc'),
+    body('newPassword')
+      .isLength({ min: 6 })
+      .withMessage('Mật khẩu mới phải có ít nhất 6 ký tự')
+  ],
+  authController.changePassword
+);
+
 module.exports = router;
 
 

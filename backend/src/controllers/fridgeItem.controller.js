@@ -9,7 +9,9 @@ const Unit = require('../models/Unit.model');
 const Category = require('../models/Category.model');
 const ConsumptionLog = require('../models/ConsumptionLog.model');
 const Notification = require('../models/Notification.model');
+const User = require('../models/User.model');
 const notificationService = require('../services/notification.service');
+const { sendExpiryEmail } = require('../services/email.service');
 // Require các models liên quan để Mongoose có thể populate
 require('../models/FoodItem.model');
 require('../models/Unit.model');
@@ -99,6 +101,21 @@ const checkAndCreateNotificationForItem = async (fridgeItem) => {
         });
         
         console.log(`[Notification] ✅ Created expired notification for: ${foodItemName} (expiryDate: ${expiryDateStr})`);
+
+        // Gửi email thông báo hết hạn (nếu cấu hình email)
+        try {
+          const user = await User.findById(userId).select('email fullName');
+          if (user && user.email) {
+            await sendExpiryEmail({
+              to: user.email,
+              subject: notification.title,
+              text: notification.message,
+              html: `<p>Chào ${user.fullName || ''},</p><p>${notification.message}</p>`
+            });
+          }
+        } catch (emailError) {
+          console.error('[Email] Lỗi khi gửi email hết hạn:', emailError);
+        }
       } else {
         console.log(`[Notification] ⏭️  Expired notification already exists for: ${foodItemName}`);
       }
@@ -136,6 +153,36 @@ const checkAndCreateNotificationForItem = async (fridgeItem) => {
         });
         
         console.log(`[Notification] ✅ Created expiring_soon notification for: ${foodItemName} (${daysLeft} days left, expiryDate: ${expiryDateStr})`);
+
+        // Gửi email thông báo sắp hết hạn (nếu cấu hình email)
+        try {
+          const user = await User.findById(userId).select('email fullName');
+          if (user && user.email) {
+            await sendExpiryEmail({
+              to: user.email,
+              subject: notification.title,
+              text: notification.message,
+              html: `<p>Chào ${user.fullName || ''},</p><p>${notification.message}</p><p>Vui lòng kiểm tra tủ lạnh và sử dụng thực phẩm này sớm để tránh lãng phí.</p>`
+            });
+          }
+        } catch (emailError) {
+          console.error('[Email] Lỗi khi gửi email sắp hết hạn:', emailError);
+        }
+
+        // Gửi email thông báo sắp hết hạn (nếu cấu hình email)
+        try {
+          const user = await User.findById(userId).select('email fullName');
+          if (user && user.email) {
+            await sendExpiryEmail({
+              to: user.email,
+              subject: notification.title,
+              text: notification.message,
+              html: `<p>Chào ${user.fullName || ''},</p><p>${notification.message}</p>`
+            });
+          }
+        } catch (emailError) {
+          console.error('[Email] Lỗi khi gửi email sắp hết hạn:', emailError);
+        }
       } else {
         console.log(`[Notification] ⏭️  Expiring_soon notification already exists for: ${foodItemName}`);
       }

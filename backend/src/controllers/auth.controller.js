@@ -207,5 +207,62 @@ exports.logout = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Đổi mật khẩu
+ * @route   POST /api/auth/change-password
+ * @access  Private
+ *
+ * Luồng nghiệp vụ:
+ * 1. Validate input (currentPassword, newPassword)
+ * 2. Lấy user hiện tại (kèm password)
+ * 3. Kiểm tra mật khẩu hiện tại
+ * 4. Cập nhật mật khẩu mới (hash qua hook của User model)
+ * 5. Trả về thông báo thành công
+ */
+exports.changePassword = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dữ liệu không hợp lệ',
+        errors: errors.array()
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    // Lấy user hiện tại kèm password
+    const user = await User.findById(req.user.id).select('+password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy người dùng'
+      });
+    }
+
+    // Kiểm tra mật khẩu hiện tại
+    const isMatch = await user.matchPassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mật khẩu hiện tại không đúng'
+      });
+    }
+
+    // Cập nhật mật khẩu mới (hook pre('save') sẽ tự hash)
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Đổi mật khẩu thành công'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 

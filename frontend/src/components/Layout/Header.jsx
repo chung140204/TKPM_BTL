@@ -1,14 +1,17 @@
-import { Moon, Sun, Bell, Search, CheckCheck } from "lucide-react"
+import { Moon, Sun, Bell, Search, CheckCheck, User, LogOut, UserCircle2, KeyRound } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { Dropdown } from "@/components/ui/Dropdown"
 import { Button } from "@/components/ui/Button"
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { useAuth } from "@/contexts/AuthContext"
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "@/utils/api"
 
 export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, logout } = useAuth()
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(false)
   const location = useLocation()
@@ -214,21 +217,112 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
         <button
           onClick={onThemeToggle}
           className="rounded-lg p-2 hover:bg-accent transition-colors"
+          aria-label="Toggle theme"
         >
           {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </button>
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-sm font-medium text-primary">
-              {user?.fullName?.[0]?.toUpperCase() || 'U'}
-            </span>
-          </div>
-          <div className="hidden md:block">
-            <p className="text-sm font-medium">{user?.fullName || 'User'}</p>
-            <p className="text-xs text-muted-foreground">{user?.email || ''}</p>
-          </div>
+
+        {/* User avatar & menu */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsUserMenuOpen((prev) => !prev)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                setIsUserMenuOpen((prev) => !prev)
+              }
+            }}
+            className="flex items-center gap-2 rounded-full px-2 py-1 hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-haspopup="menu"
+            aria-expanded={isUserMenuOpen}
+          >
+            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={user.fullName || "User avatar"}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-sm font-medium text-primary">
+                  {user?.fullName?.[0]?.toUpperCase() || "U"}
+                </span>
+              )}
+            </div>
+            <div className="hidden md:flex flex-col items-start text-left">
+              <span className="text-sm font-medium leading-tight max-w-[140px] truncate">
+                {user?.fullName || "User"}
+              </span>
+              <span className="text-xs text-muted-foreground max-w-[160px] truncate">
+                {user?.email || ""}
+              </span>
+            </div>
+          </button>
+
+          <Dropdown
+            isOpen={isUserMenuOpen}
+            onClose={() => setIsUserMenuOpen(false)}
+            className="w-56"
+          >
+            <div className="py-1">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-accent focus:bg-accent focus:outline-none"
+                onClick={() => {
+                  navigate("/profile")
+                  setIsUserMenuOpen(false)
+                }}
+              >
+                <UserCircle2 className="h-4 w-4 text-muted-foreground" />
+                <span>Profile</span>
+              </button>
+
+              <div className="my-1 border-t" />
+
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-accent focus:bg-accent focus:outline-none"
+                onClick={() => {
+                  navigate("/change-password")
+                  setIsUserMenuOpen(false)
+                }}
+              >
+                <KeyRound className="h-4 w-4 text-muted-foreground" />
+                <span>Change Password</span>
+              </button>
+
+              <div className="my-1 border-t" />
+
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 focus:bg-red-50 focus:outline-none"
+                onClick={() => {
+                  setIsUserMenuOpen(false)
+                  setShowLogoutConfirm(true)
+                }}
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Logout</span>
+              </button>
+            </div>
+          </Dropdown>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={showLogoutConfirm}
+        onClose={() => setShowLogoutConfirm(false)}
+        onConfirm={() => {
+          setShowLogoutConfirm(false)
+          logout()
+        }}
+        title="Đăng xuất"
+        message="Bạn có chắc chắn muốn đăng xuất khỏi Smart Grocery?"
+        confirmText="Đăng xuất"
+        cancelText="Hủy"
+        variant="destructive"
+      />
     </header>
   )
 }

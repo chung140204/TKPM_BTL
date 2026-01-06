@@ -9,6 +9,7 @@ const MealPlan = require('../models/MealPlan.model');
 const FamilyGroup = require('../models/FamilyGroup.model');
 const Notification = require('../models/Notification.model');
 const User = require('../models/User.model');
+const { sendExpiryEmail } = require('./email.service');
 
 /**
  * @desc    Kiểm tra và tạo thông báo cho thực phẩm sắp hết hạn
@@ -137,6 +138,22 @@ exports.checkExpiringFridgeItems = async () => {
 
         console.log(`[Notification Service] ✅ Đã tạo notification cho ${foodItemName} (${daysLeft} ngày)`);
         createdCount++;
+
+        // Gửi email thông báo sắp hết hạn (nếu cấu hình email)
+        try {
+          const userEmail = item.userId?.email;
+          const userFullName = item.userId?.fullName;
+          if (userEmail) {
+            await sendExpiryEmail({
+              to: userEmail,
+              subject: notification.title,
+              text: notification.message,
+              html: `<p>Chào ${userFullName || ''},</p><p>${notification.message}</p><p>Vui lòng kiểm tra tủ lạnh và sử dụng thực phẩm này sớm để tránh lãng phí.</p>`
+            });
+          }
+        } catch (emailError) {
+          console.error('[Email] Lỗi khi gửi email sắp hết hạn:', emailError);
+        }
       } catch (error) {
         errors.push({
           itemId: item._id.toString(),
@@ -166,7 +183,7 @@ exports.checkExpiringFridgeItems = async () => {
 
         // Create expired notification
         const foodItemName = item.foodItemId.name || 'Thực phẩm';
-        await Notification.create({
+        const notification = await Notification.create({
           userId: userId,
           type: 'expired',
           title: 'Thực phẩm đã hết hạn',
@@ -177,6 +194,22 @@ exports.checkExpiringFridgeItems = async () => {
         });
 
         createdCount++;
+
+        // Gửi email thông báo hết hạn (nếu cấu hình email)
+        try {
+          const userEmail = item.userId?.email;
+          const userFullName = item.userId?.fullName;
+          if (userEmail) {
+            await sendExpiryEmail({
+              to: userEmail,
+              subject: notification.title,
+              text: notification.message,
+              html: `<p>Chào ${userFullName || ''},</p><p>${notification.message}</p>`
+            });
+          }
+        } catch (emailError) {
+          console.error('[Email] Lỗi khi gửi email hết hạn:', emailError);
+        }
       } catch (error) {
         errors.push({
           itemId: item._id.toString(),
