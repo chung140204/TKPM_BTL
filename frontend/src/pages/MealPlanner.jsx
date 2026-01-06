@@ -7,14 +7,14 @@ import { RecipeModal } from "@/components/MealPlanner/RecipeModal"
 import { RecipeDetailDialog } from "@/components/RecipeDetailDialog"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { ShoppingCart, Calendar, Sparkles, Loader2 } from "lucide-react"
-import { mockRecipes, mockFridgeItems as initialMockFridgeItems } from "@/data/mockData"
 import { generateShoppingListFromMealPlan } from "@/utils/generateShoppingListFromMealPlan"
 import { showToast } from "@/components/ui/Toast"
 import { 
   getMealPlans, 
   createMealPlan, 
   updateMealPlan,
-  generateShoppingListFromMealPlan as generateShoppingListAPI
+  generateShoppingListFromMealPlan as generateShoppingListAPI,
+  getSuggestedRecipes
 } from "@/utils/api"
 import { getFridgeItems } from "@/utils/api"
 
@@ -156,44 +156,58 @@ function saveMealPlanToStorage(mealPlan) {
   }
 }
 
-// Calculate matchPercentage for recipes based on fridge items
-function calculateRecipeMatch(recipe, fridgeItems) {
-  const fridgeNameSet = new Set(
-    fridgeItems.map(item => item.name.toLowerCase())
-  )
+const isValidObjectId = (value) => typeof value === "string" && /^[a-f0-9]{24}$/i.test(value)
 
-  const allRequired = [
-    ...(recipe.availableIngredients || []),
-    ...(recipe.missingIngredients || []),
-  ]
+function calculateMatchPercentage(recipe) {
+  if (typeof recipe.matchPercentage === "number") {
+    return recipe.matchPercentage
+  }
 
-  if (allRequired.length === 0) return 0
+  const availableCount = recipe.availableIngredients?.length || 0
+  const missingCount = recipe.missingIngredients?.length || 0
+  const total = availableCount + missingCount
+  if (total === 0) return 0
+  return Math.round((availableCount / total) * 100)
+}
 
-  const availableCount = allRequired.filter(ing => 
-    fridgeNameSet.has(ing.name.toLowerCase())
-  ).length
+function normalizeRecipe(recipe) {
+  const id = recipe.recipeId || recipe._id || recipe.id
+  const availableIngredients = recipe.availableIngredients || []
+  const missingIngredients = recipe.missingIngredients || []
 
-  return Math.round((availableCount / allRequired.length) * 100)
+  return {
+    id,
+    name: recipe.name || recipe.recipeName || "Không tên",
+    description: recipe.description || "",
+    image: recipe.image || "",
+    servings: recipe.servings || 0,
+    prepTime: recipe.prepTime || 0,
+    cookTime: recipe.cookTime || 0,
+    difficulty: recipe.difficulty || "medium",
+    category: recipe.category || "Khác",
+    calories: recipe.calories,
+    matchPercentage: calculateMatchPercentage({
+      ...recipe,
+      availableIngredients,
+      missingIngredients
+    }),
+    availableIngredients,
+    missingIngredients,
+    instructions: recipe.instructions || []
+  }
 }
 
 // Helper: Get sorted recipes by match percentage
-function getSortedRecipes(fridgeItems) {
-  const recipesWithMatch = mockRecipes.map(recipe => {
-    const matchPercentage = calculateRecipeMatch(recipe, fridgeItems)
-    return { ...recipe, matchPercentage }
-  })
-
-  // Sort recipes: favorites first, then by matchPercentage descending
-  return [...recipesWithMatch].sort((a, b) => {
+function getSortedRecipes(recipes) {
+  return [...recipes].sort((a, b) => {
     if (a.isFavorite && !b.isFavorite) return -1
     if (!a.isFavorite && b.isFavorite) return 1
-    return b.matchPercentage - a.matchPercentage
+    return (b.matchPercentage || 0) - (a.matchPercentage || 0)
   })
 }
 
 // Smart suggest meals for a specific day
-function smartSuggestMealsForDay(day, currentMealPlan, fridgeItems) {
-  const sortedRecipes = getSortedRecipes(fridgeItems)
+function smartSuggestMealsForDay(day, currentMealPlan, sortedRecipes) {
   const dayMeals = currentMealPlan[day] || {}
   const dayUsedIds = new Set()
 
@@ -212,7 +226,7 @@ function smartSuggestMealsForDay(day, currentMealPlan, fridgeItems) {
     if (!dayMeals[mealType]) {
       // Find best recipe that hasn't been used in this day
       const bestRecipe = sortedRecipes.find(recipe => 
-        !dayUsedIds.has(recipe.id)
+        recipe.id && !dayUsedIds.has(recipe.id)
       )
 
       if (bestRecipe) {
@@ -233,14 +247,13 @@ function smartSuggestMealsForDay(day, currentMealPlan, fridgeItems) {
 }
 
 // Smart suggest meals based on fridge ingredients (for all days)
-function smartSuggestMeals(currentMealPlan, fridgeItems) {
-  const sortedRecipes = getSortedRecipes(fridgeItems)
+function smartSuggestMeals(currentMealPlan, sortedRecipes) {
   const newMealPlan = { ...currentMealPlan }
   let suggestedCount = 0
 
   // Fill empty slots for all days
   days.forEach(day => {
-    const { updatedDayMeals, suggestedCount: dayCount } = smartSuggestMealsForDay(day, currentMealPlan, fridgeItems)
+    const { updatedDayMeals, suggestedCount: dayCount } = smartSuggestMealsForDay(day, currentMealPlan, sortedRecipes)
     newMealPlan[day] = updatedDayMeals
     suggestedCount += dayCount
   })
@@ -262,6 +275,7 @@ export function MealPlanner() {
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [autoSuggestedSlots, setAutoSuggestedSlots] = useState(new Set())
   const [fridgeItems, setFridgeItems] = useState([])
+  const [suggestedRecipes, setSuggestedRecipes] = useState([])
   const [isSmartSuggesting, setIsSmartSuggesting] = useState(false)
   const [showSmartSuggestConfirm, setShowSmartSuggestConfirm] = useState(false)
 
@@ -316,6 +330,19 @@ export function MealPlanner() {
       }
     }
 
+    const fetchSuggestedRecipes = async () => {
+      try {
+        const response = await getSuggestedRecipes()
+        const recipes = response.data?.recipes || []
+        const normalized = recipes.map(normalizeRecipe)
+        const validRecipes = normalized.filter(recipe => isValidObjectId(recipe.id))
+        setSuggestedRecipes(validRecipes)
+      } catch (err) {
+        console.warn('Could not fetch suggested recipes:', err)
+        setSuggestedRecipes([])
+      }
+    }
+
     // Fetch fridge items for smart suggest
     const fetchFridgeItems = async () => {
       try {
@@ -336,6 +363,7 @@ export function MealPlanner() {
     }
 
     fetchMealPlan()
+    fetchSuggestedRecipes()
     fetchFridgeItems()
   }, [])
 
@@ -422,7 +450,7 @@ export function MealPlanner() {
           [selectedMealType]: {
             id: recipe.id,
             name: recipe.name,
-            calories: recipe.calories || Math.floor(Math.random() * 200) + 300, // Mock calories if not available
+            calories: recipe.calories || Math.floor(Math.random() * 200) + 300,
             image: recipe.image
           }
         }
@@ -443,44 +471,13 @@ export function MealPlanner() {
   }
 
   const handleViewRecipe = (mealRecipe) => {
-    // Find full recipe data from mockRecipes
-    const fullRecipe = mockRecipes.find(r => r.id === mealRecipe.id)
-    if (!fullRecipe) return
-
-    // Calculate matchPercentage and ingredients based on fridge items
-    const fridgeNameSet = new Set(
-      fridgeItems.map(item => item.name.toLowerCase())
-    )
-
-    const allRequired = [
-      ...(fullRecipe.availableIngredients || []),
-      ...(fullRecipe.missingIngredients || []),
-    ]
-
-    const availableIngredients = []
-    const missingIngredients = []
-
-    allRequired.forEach((ing) => {
-      const key = ing.name.toLowerCase()
-      if (fridgeNameSet.has(key)) {
-        availableIngredients.push(ing)
-      } else {
-        missingIngredients.push(ing)
-      }
-    })
-
-    const total = allRequired.length || 1
-    const matchPercentage = Math.round((availableIngredients.length / total) * 100)
-
-    // Create enriched recipe object
-    const enrichedRecipe = {
-      ...fullRecipe,
-      availableIngredients,
-      missingIngredients,
-      matchPercentage,
+    const fullRecipe = suggestedRecipes.find(r => r.id === mealRecipe.id)
+    if (!fullRecipe) {
+      showToast("Không tìm thấy công thức phù hợp để hiển thị chi tiết.", "warning")
+      return
     }
 
-    setSelectedRecipe(enrichedRecipe)
+    setSelectedRecipe(fullRecipe)
     setIsDetailOpen(true)
   }
 
@@ -494,7 +491,14 @@ export function MealPlanner() {
 
     // Simulate processing (for better UX)
     setTimeout(async () => {
-      const { newMealPlan, suggestedCount } = smartSuggestMeals(mealPlan, fridgeItems)
+      const sortedRecipes = getSortedRecipes(suggestedRecipes)
+      if (sortedRecipes.length === 0) {
+        showToast("Chưa có công thức hợp lệ để đề xuất. Vui lòng kiểm tra dữ liệu công thức.", "warning")
+        setIsSmartSuggesting(false)
+        return
+      }
+
+      const { newMealPlan, suggestedCount } = smartSuggestMeals(mealPlan, sortedRecipes)
 
       if (suggestedCount === 0) {
         showToast("Tất cả các bữa ăn đã được lên kế hoạch!", "info")
@@ -540,7 +544,13 @@ export function MealPlanner() {
   }
 
   const handleSuggestForDay = async (day) => {
-    const { updatedDayMeals, suggestedCount } = smartSuggestMealsForDay(day, mealPlan, fridgeItems)
+    const sortedRecipes = getSortedRecipes(suggestedRecipes)
+    if (sortedRecipes.length === 0) {
+      showToast("Chưa có công thức hợp lệ để đề xuất. Vui lòng kiểm tra dữ liệu công thức.", "warning")
+      return
+    }
+
+    const { updatedDayMeals, suggestedCount } = smartSuggestMealsForDay(day, mealPlan, sortedRecipes)
 
     if (suggestedCount === 0) {
       showToast(`Tất cả các bữa ăn cho ${dayNames[day]} đã được lên kế hoạch!`, "info")
@@ -762,6 +772,7 @@ export function MealPlanner() {
           setSelectedMealType(null)
         }}
         onSelect={handleSelectRecipe}
+        recipes={suggestedRecipes}
       />
 
       {/* Recipe Detail Dialog */}
@@ -787,4 +798,3 @@ export function MealPlanner() {
     </div>
   )
 }
-

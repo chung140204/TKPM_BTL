@@ -8,29 +8,38 @@ const ConsumptionLog = require('../models/ConsumptionLog.model');
 const mongoose = require('mongoose');
 
 // Helper function để tính date range dựa trên period
-const getDateRange = (period) => {
+const getDateRange = (period, offset = 0) => {
   const now = new Date();
   let startDate;
+  let endDate;
 
   switch (period) {
     case 'week':
-      startDate = new Date(now);
-      startDate.setDate(now.getDate() - 7);
+      endDate = new Date(now);
+      endDate.setDate(endDate.getDate() - (7 * offset));
+      startDate = new Date(endDate);
+      startDate.setDate(startDate.getDate() - 7);
       break;
     case 'month':
-      startDate = new Date(now);
-      startDate.setMonth(now.getMonth() - 1);
+      endDate = new Date(now);
+      endDate.setMonth(endDate.getMonth() - offset);
+      startDate = new Date(endDate);
+      startDate.setMonth(startDate.getMonth() - 1);
       break;
     case 'year':
-      startDate = new Date(now);
-      startDate.setFullYear(now.getFullYear() - 1);
+      endDate = new Date(now);
+      endDate.setFullYear(endDate.getFullYear() - offset);
+      startDate = new Date(endDate);
+      startDate.setFullYear(startDate.getFullYear() - 1);
       break;
     default:
-      startDate = new Date(now);
-      startDate.setMonth(now.getMonth() - 1); // Default: 1 month
+      endDate = new Date(now);
+      endDate.setMonth(endDate.getMonth() - offset);
+      startDate = new Date(endDate);
+      startDate.setMonth(startDate.getMonth() - 1); // Default: 1 month
   }
 
-  return { startDate, endDate: now };
+  return { startDate, endDate: endDate || now };
 };
 
 /**
@@ -42,7 +51,8 @@ exports.getPurchaseStatistics = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const period = req.query.period || 'month';
-    const { startDate, endDate } = getDateRange(period);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const { startDate, endDate } = getDateRange(period, offset);
 
     // Lấy tất cả completed shopping lists trong khoảng thời gian
     // Nếu completedAt = null, sử dụng updatedAt hoặc createdAt
@@ -162,7 +172,8 @@ exports.getWasteStatistics = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const period = req.query.period || 'month';
-    const { startDate, endDate } = getDateRange(period);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const { startDate, endDate } = getDateRange(period, offset);
 
     // Lấy tất cả expired fridge items trong khoảng thời gian
     const expiredItems = await FridgeItem.find({
@@ -287,7 +298,8 @@ exports.getConsumptionStatistics = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const period = req.query.period || 'month';
-    const { startDate, endDate } = getDateRange(period);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const { startDate, endDate } = getDateRange(period, offset);
 
     // 1. Lấy purchased items từ completed shopping lists
     const shoppingLists = await ShoppingList.find({
@@ -434,7 +446,8 @@ exports.getRecipeStatistics = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const period = req.query.period || 'month';
-    const { startDate, endDate } = getDateRange(period);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const { startDate, endDate } = getDateRange(period, offset);
 
     // 1. Lấy tất cả notifications về recipe_cooked trong khoảng thời gian
     const cookedNotifications = await Notification.find({

@@ -19,10 +19,41 @@ import { TrendingDown, TrendingUp, AlertTriangle, ShoppingCart, Utensils, Calend
 import { getPurchaseStatistics, getWasteStatistics, getConsumptionStatistics } from "@/utils/api"
 
 export function Statistics() {
-  const [timePeriod, setTimePeriod] = useState("month") // week, month, year
+  const [timePeriod, setTimePeriod] = useState("week") // week, month, year
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [statisticsData, setStatisticsData] = useState(null)
+
+  const calculatePercentChange = (currentValue, previousValue) => {
+    if (previousValue > 0) {
+      return ((currentValue - previousValue) / previousValue) * 100
+    }
+    if (currentValue === 0) {
+      return 0
+    }
+    return 100
+  }
+
+  const formatPercentChange = (value) => {
+    const rounded = Math.round(value)
+    if (rounded > 0) return `+${rounded}%`
+    if (rounded < 0) return `${rounded}%`
+    return "0%"
+  }
+
+  const buildChangeMeta = (changeValue, positiveIsGood = true) => {
+    const safeValue = Number.isFinite(changeValue) ? changeValue : 0
+    const isIncrease = safeValue >= 0
+    const TrendIcon = isIncrease ? TrendingUp : TrendingDown
+    const isGood = positiveIsGood ? safeValue >= 0 : safeValue <= 0
+    const colorClass = isGood ? "text-green-600" : "text-red-600"
+
+    return {
+      TrendIcon,
+      colorClass,
+      label: formatPercentChange(safeValue)
+    }
+  }
 
   // Fetch statistics data from API
   useEffect(() => {
@@ -32,18 +63,38 @@ export function Statistics() {
         setError(null)
 
         // Fetch all statistics in parallel
-        const [purchaseRes, wasteRes, consumptionRes] = await Promise.all([
+        const [
+          purchaseRes,
+          wasteRes,
+          consumptionRes,
+          previousPurchaseRes,
+          previousWasteRes,
+          previousConsumptionRes
+        ] = await Promise.all([
           getPurchaseStatistics(timePeriod),
           getWasteStatistics(timePeriod),
-          getConsumptionStatistics(timePeriod)
+          getConsumptionStatistics(timePeriod),
+          getPurchaseStatistics(timePeriod, 1),
+          getWasteStatistics(timePeriod, 1),
+          getConsumptionStatistics(timePeriod, 1)
         ])
 
         // Check if any API call failed
-        if (!purchaseRes.success || !wasteRes.success || !consumptionRes.success) {
+        if (
+          !purchaseRes.success ||
+          !wasteRes.success ||
+          !consumptionRes.success ||
+          !previousPurchaseRes.success ||
+          !previousWasteRes.success ||
+          !previousConsumptionRes.success
+        ) {
           const errors = []
           if (!purchaseRes.success) errors.push(`Purchase: ${purchaseRes.message || 'Lỗi không xác định'}`)
           if (!wasteRes.success) errors.push(`Waste: ${wasteRes.message || 'Lỗi không xác định'}`)
           if (!consumptionRes.success) errors.push(`Consumption: ${consumptionRes.message || 'Lỗi không xác định'}`)
+          if (!previousPurchaseRes.success) errors.push(`Previous Purchase: ${previousPurchaseRes.message || 'Lỗi không xác định'}`)
+          if (!previousWasteRes.success) errors.push(`Previous Waste: ${previousWasteRes.message || 'Lỗi không xác định'}`)
+          if (!previousConsumptionRes.success) errors.push(`Previous Consumption: ${previousConsumptionRes.message || 'Lỗi không xác định'}`)
           throw new Error(`API errors: ${errors.join(', ')}`)
         }
 
@@ -51,6 +102,9 @@ export function Statistics() {
         const purchaseData = purchaseRes.data || {}
         const wasteData = wasteRes.data || {}
         const consumptionData = consumptionRes.data || {}
+        const previousPurchaseData = previousPurchaseRes.data || {}
+        const previousWasteData = previousWasteRes.data || {}
+        const previousConsumptionData = previousConsumptionRes.data || {}
 
         console.log('Purchase data:', purchaseData)
         console.log('Waste data:', wasteData)
@@ -127,11 +181,25 @@ export function Statistics() {
         const totalWasted = wasteData.totalWastedQuantity || wasteData.totalWastedItems || 0
         const wasteRate = consumptionData.wasteRate || (totalConsumed > 0 ? (totalWasted / totalConsumed) * 100 : 0)
 
+        const previousConsumptionTrend = previousConsumptionData.consumptionTrend || []
+        const previousTotalPurchased = previousPurchaseData.totalItems || 0
+        const previousTotalConsumed = previousConsumptionTrend.reduce((sum, item) => sum + (item.used || 0), 0)
+        const previousTotalWasted = previousWasteData.totalWastedQuantity || previousWasteData.totalWastedItems || 0
+        const previousWasteRate = previousConsumptionData.wasteRate || (previousTotalConsumed > 0 ? (previousTotalWasted / previousTotalConsumed) * 100 : 0)
+
+        const changes = {
+          totalPurchased: calculatePercentChange(totalPurchased, previousTotalPurchased),
+          totalConsumed: calculatePercentChange(totalConsumed, previousTotalConsumed),
+          totalWasted: calculatePercentChange(totalWasted, previousTotalWasted),
+          wasteRate: calculatePercentChange(wasteRate, previousWasteRate)
+        }
+
         console.log('Calculated stats:', {
           totalPurchased,
           totalConsumed,
           totalWasted,
-          wasteRate
+          wasteRate,
+          changes
         })
 
         setStatisticsData({
@@ -141,7 +209,8 @@ export function Statistics() {
           wasteRate: Math.round(wasteRate * 100) / 100,
           purchaseVsConsumption,
           wasteOverTime,
-          mostWastedCategories
+          mostWastedCategories,
+          changes
         })
       } catch (err) {
         console.error('Error fetching statistics:', err)
@@ -155,7 +224,13 @@ export function Statistics() {
           wasteRate: 0,
           purchaseVsConsumption: [],
           wasteOverTime: [],
-          mostWastedCategories: []
+          mostWastedCategories: [],
+          changes: {
+            totalPurchased: 0,
+            totalConsumed: 0,
+            totalWasted: 0,
+            wasteRate: 0
+          }
         })
       } finally {
         setLoading(false)
@@ -173,8 +248,30 @@ export function Statistics() {
     wasteRate: 0,
     purchaseVsConsumption: [],
     wasteOverTime: [],
-    mostWastedCategories: []
+    mostWastedCategories: [],
+    changes: {
+      totalPurchased: 0,
+      totalConsumed: 0,
+      totalWasted: 0,
+      wasteRate: 0
+    }
   }
+
+  const comparisonLabel = timePeriod === "week"
+    ? "so với tuần trước"
+    : timePeriod === "month"
+      ? "so với tháng trước"
+      : "so với năm trước"
+
+  const purchasedChange = buildChangeMeta(data.changes.totalPurchased, true)
+  const consumedChange = buildChangeMeta(data.changes.totalConsumed, true)
+  const wastedChange = buildChangeMeta(data.changes.totalWasted, false)
+  const wasteRateChange = buildChangeMeta(data.changes.wasteRate, false)
+
+  const PurchasedTrendIcon = purchasedChange.TrendIcon
+  const ConsumedTrendIcon = consumedChange.TrendIcon
+  const WastedTrendIcon = wastedChange.TrendIcon
+  const WasteRateTrendIcon = wasteRateChange.TrendIcon
 
   if (loading) {
     return (
@@ -261,9 +358,9 @@ export function Statistics() {
           <CardContent className="relative z-10">
             <div className="text-3xl font-bold text-green-900 dark:text-green-100 mb-1">{data.totalPurchased} kg</div>
             <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-2">
-              <TrendingUp className="h-3.5 w-3.5 text-green-600" />
-              <span className="text-green-600 font-medium">+5%</span>
-              <span className="text-muted-foreground">so với kỳ trước</span>
+              <PurchasedTrendIcon className={`h-3.5 w-3.5 ${purchasedChange.colorClass}`} />
+              <span className={`${purchasedChange.colorClass} font-medium`}>{purchasedChange.label}</span>
+              <span className="text-muted-foreground">{comparisonLabel}</span>
             </p>
           </CardContent>
         </Card>
@@ -279,9 +376,9 @@ export function Statistics() {
           <CardContent className="relative z-10">
             <div className="text-3xl font-bold text-green-900 dark:text-green-100 mb-1">{data.totalConsumed} kg</div>
             <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-2">
-              <TrendingUp className="h-3.5 w-3.5 text-green-600" />
-              <span className="text-green-600 font-medium">+8%</span>
-              <span className="text-muted-foreground">so với kỳ trước</span>
+              <ConsumedTrendIcon className={`h-3.5 w-3.5 ${consumedChange.colorClass}`} />
+              <span className={`${consumedChange.colorClass} font-medium`}>{consumedChange.label}</span>
+              <span className="text-muted-foreground">{comparisonLabel}</span>
             </p>
           </CardContent>
         </Card>
@@ -297,9 +394,9 @@ export function Statistics() {
           <CardContent className="relative z-10">
             <div className="text-3xl font-bold text-red-900 dark:text-red-100 mb-1">{data.totalWasted} kg</div>
             <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-2">
-              <TrendingDown className="h-3.5 w-3.5 text-green-600" />
-              <span className="text-green-600 font-medium">-35%</span>
-              <span className="text-muted-foreground">so với kỳ trước</span>
+              <WastedTrendIcon className={`h-3.5 w-3.5 ${wastedChange.colorClass}`} />
+              <span className={`${wastedChange.colorClass} font-medium`}>{wastedChange.label}</span>
+              <span className="text-muted-foreground">{comparisonLabel}</span>
             </p>
           </CardContent>
         </Card>
@@ -315,9 +412,9 @@ export function Statistics() {
           <CardContent className="relative z-10">
             <div className="text-3xl font-bold text-purple-900 dark:text-purple-100 mb-1">{data.wasteRate}%</div>
             <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-2">
-              <TrendingDown className="h-3.5 w-3.5 text-green-600" />
-              <span className="text-green-600 font-medium">-2.1%</span>
-              <span className="text-muted-foreground">so với kỳ trước</span>
+              <WasteRateTrendIcon className={`h-3.5 w-3.5 ${wasteRateChange.colorClass}`} />
+              <span className={`${wasteRateChange.colorClass} font-medium`}>{wasteRateChange.label}</span>
+              <span className="text-muted-foreground">{comparisonLabel}</span>
             </p>
           </CardContent>
         </Card>
@@ -602,4 +699,3 @@ export function Statistics() {
     </div>
   )
 }
-

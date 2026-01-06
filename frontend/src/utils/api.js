@@ -134,9 +134,13 @@ export async function getRecentActivities(page = 1, limit = 5) {
 }
 
 // Statistics APIs
-export async function getPurchaseStatistics(period = 'month') {
+export async function getPurchaseStatistics(period = 'month', offset = 0) {
   try {
-    const response = await apiRequest(`/statistics/purchases?period=${period}`)
+    const params = new URLSearchParams({ period })
+    if (offset) {
+      params.set('offset', offset)
+    }
+    const response = await apiRequest(`/statistics/purchases?${params.toString()}`)
     return response
   } catch (error) {
     console.error('Error fetching purchase statistics:', error)
@@ -144,9 +148,13 @@ export async function getPurchaseStatistics(period = 'month') {
   }
 }
 
-export async function getWasteStatistics(period = 'month') {
+export async function getWasteStatistics(period = 'month', offset = 0) {
   try {
-    const response = await apiRequest(`/statistics/waste?period=${period}`)
+    const params = new URLSearchParams({ period })
+    if (offset) {
+      params.set('offset', offset)
+    }
+    const response = await apiRequest(`/statistics/waste?${params.toString()}`)
     return response
   } catch (error) {
     console.error('Error fetching waste statistics:', error)
@@ -154,9 +162,13 @@ export async function getWasteStatistics(period = 'month') {
   }
 }
 
-export async function getConsumptionStatistics(period = 'month') {
+export async function getConsumptionStatistics(period = 'month', offset = 0) {
   try {
-    const response = await apiRequest(`/statistics/consumption?period=${period}`)
+    const params = new URLSearchParams({ period })
+    if (offset) {
+      params.set('offset', offset)
+    }
+    const response = await apiRequest(`/statistics/consumption?${params.toString()}`)
     return response
   } catch (error) {
     console.error('Error fetching consumption statistics:', error)
@@ -599,4 +611,3 @@ export async function markAllNotificationsAsRead() {
     throw error
   }
 }
-

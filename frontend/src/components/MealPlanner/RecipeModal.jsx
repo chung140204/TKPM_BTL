@@ -1,20 +1,18 @@
 import { useState } from "react"
 import { Dialog } from "@/components/ui/Dialog"
 import { Input } from "@/components/ui/Input"
-import { Button } from "@/components/ui/Button"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Search, Utensils } from "lucide-react"
-import { mockRecipes } from "@/data/mockData"
 
-export function RecipeModal({ isOpen, onClose, onSelect }) {
+export function RecipeModal({ isOpen, onClose, onSelect, recipes = [] }) {
   const [searchQuery, setSearchQuery] = useState("")
 
   const filteredRecipes = searchQuery
-    ? mockRecipes.filter(recipe =>
+    ? recipes.filter(recipe =>
         recipe.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         recipe.category.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : mockRecipes
+    : recipes
 
   const handleSelect = (recipe) => {
     onSelect(recipe)
