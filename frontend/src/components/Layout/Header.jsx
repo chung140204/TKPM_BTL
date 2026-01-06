@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/Button"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { useAuth } from "@/contexts/AuthContext"
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "@/utils/api"
+import { ROLES } from "@/utils/roles"
 
 export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
-  const { user, isAuthenticated, logout } = useAuth()
+  const { user, isAuthenticated, logout, viewMode, setView } = useAuth()
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
@@ -16,6 +17,7 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
   const [loading, setLoading] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
+  const isAdmin = user?.role === ROLES.ADMIN
 
   // Fetch notifications when authenticated
   useEffect(() => {
@@ -51,7 +53,11 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
           relatedType: n.relatedType,
           isRead: n.isRead,
           createdAt: n.createdAt,
-          time: formatTime(n.createdAt)
+          time: formatTime(n.createdAt),
+          scope: n.scope || (n.familyGroupId ? "family" : "personal"),
+          familyGroupName: n.familyGroupName,
+          actionUrl: n.actionUrl,
+          actionLabel: n.actionLabel
         })))
       }
     } catch (error) {
@@ -91,6 +97,22 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
     }
   }
 
+  const navigateFromNotification = (notification) => {
+    if (notification.actionUrl) {
+      navigate(notification.actionUrl)
+      return true
+    }
+
+    if (notification.type === 'expiring_soon' || notification.type === 'expired') {
+      if (notification.relatedType === 'FridgeItem') {
+        navigate('/fridge')
+        return true
+      }
+    }
+
+    return false
+  }
+
   const handleNotificationClick = async (notification) => {
     // Mark as read
     if (!notification.isRead) {
@@ -104,13 +126,9 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
       }
     }
 
-    // Navigate based on notification type
-    if (notification.type === 'expiring_soon' || notification.type === 'expired') {
-      if (notification.relatedType === 'FridgeItem') {
-        navigate('/fridge')
-        // Close dropdown
-        setIsNotificationOpen(false)
-      }
+    // Navigate based on actionUrl/type
+    if (navigateFromNotification(notification)) {
+      setIsNotificationOpen(false)
     }
   }
 
@@ -125,16 +143,18 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-6">
       <div className="flex items-center gap-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder={getSearchPlaceholder()}
-            value={searchQuery || ""}
-            onChange={(e) => onSearchChange?.(e.target.value)}
-            className="h-10 w-64 rounded-lg border border-input bg-background pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all"
-          />
-        </div>
+        {!isAdmin && (
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder={getSearchPlaceholder()}
+              value={searchQuery || ""}
+              onChange={(e) => onSearchChange?.(e.target.value)}
+              className="h-10 w-64 rounded-lg border border-input bg-background pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+            />
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-4">
         <div className="relative">
@@ -192,6 +212,15 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
                           !notification.isRead ? "bg-primary" : "bg-transparent"
                         }`} />
                         <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {notification.scope === "family"
+                                ? (notification.familyGroupName
+                                  ? `[Gia đình ${notification.familyGroupName}]`
+                                  : "[Gia đình]")
+                                : "[Cá nhân]"}
+                            </span>
+                          </div>
                           <p className={`text-sm font-medium ${
                             !notification.isRead ? "text-foreground" : "text-muted-foreground"
                           }`}>
@@ -200,6 +229,18 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
                           <p className="text-xs text-muted-foreground mt-1 break-words">
                             {notification.message}
                           </p>
+                          {notification.actionUrl && (
+                            <button
+                              type="button"
+                              className="mt-2 text-xs font-medium text-primary hover:underline"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleNotificationClick(notification)
+                              }}
+                            >
+                              {notification.actionLabel || "Nhấn vào đây để xem chi tiết"}
+                            </button>
+                          )}
                           {notification.time && (
                             <p className="text-xs text-muted-foreground mt-1">
                               {notification.time}
@@ -266,6 +307,40 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
             className="w-56"
           >
             <div className="py-1">
+              {user?.familyGroupId && (
+                <>
+                  <div className="px-3 py-2">
+                    <p className="text-xs font-medium text-muted-foreground">Chế độ hiển thị</p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setView("personal")}
+                        className={`flex-1 rounded-md border px-2 py-1 text-xs font-medium ${
+                          viewMode === "personal"
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:bg-accent"
+                        }`}
+                      >
+                        Cá nhân
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setView("family")}
+                        className={`flex-1 rounded-md border px-2 py-1 text-xs font-medium ${
+                          viewMode === "family"
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:bg-accent"
+                        }`}
+                      >
+                        Gia đình
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="my-1 border-t" />
+                </>
+              )}
+
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-accent focus:bg-accent focus:outline-none"
@@ -326,4 +401,3 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
     </header>
   )
 }
-

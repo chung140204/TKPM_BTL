@@ -1,10 +1,26 @@
 // API utility functions for backend communication
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api'
+const VIEW_STORAGE_KEY = 'viewMode'
 
 // Get auth token from localStorage
 function getAuthToken() {
   return localStorage.getItem('authToken') || localStorage.getItem('token')
+}
+
+function getViewMode() {
+  return localStorage.getItem(VIEW_STORAGE_KEY) || 'personal'
+}
+
+function appendViewParam(endpoint) {
+  const view = getViewMode()
+  if (!view) return endpoint
+
+  const url = new URL(endpoint, 'http://local')
+  if (!url.searchParams.has('view')) {
+    url.searchParams.set('view', view)
+  }
+  return `${url.pathname}${url.search}`
 }
 
 // Make API request
@@ -29,8 +45,9 @@ async function apiRequest(endpoint, options = {}) {
   }
 
   try {
-    console.log(`API Request: ${config.method} ${API_BASE_URL}${endpoint}`, config)
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config)
+    const endpointWithView = appendViewParam(endpoint)
+    console.log(`API Request: ${config.method} ${API_BASE_URL}${endpointWithView}`, config)
+    const response = await fetch(`${API_BASE_URL}${endpointWithView}`, config)
     
     console.log(`API Response Status: ${response.status} ${response.statusText}`)
     
@@ -98,15 +115,144 @@ export async function changePassword(currentPassword, newPassword) {
 }
 
 // Register API
-export async function register(email, password, fullName, phone) {
+export async function register(email, password, fullName, phone, role) {
   try {
     const response = await apiRequest('/auth/register', {
       method: 'POST',
-      body: { email, password, fullName, phone },
+      body: { email, password, fullName, phone, role },
     })
     return response
   } catch (error) {
     console.error('Error registering user:', error)
+    throw error
+  }
+}
+
+// Admin APIs
+export async function getAdminStats() {
+  try {
+    const response = await apiRequest('/admin/stats')
+    return response
+  } catch (error) {
+    console.error('Error fetching admin stats:', error)
+    throw error
+  }
+}
+
+export async function getAdminUsers() {
+  try {
+    const response = await apiRequest('/admin/users')
+    return response
+  } catch (error) {
+    console.error('Error fetching admin users:', error)
+    throw error
+  }
+}
+
+export async function createAdminUser(payload) {
+  try {
+    const response = await apiRequest('/admin/users', {
+      method: 'POST',
+      body: payload,
+    })
+    return response
+  } catch (error) {
+    console.error('Error creating admin user:', error)
+    throw error
+  }
+}
+
+export async function updateAdminUser(userId, payload) {
+  try {
+    const response = await apiRequest(`/admin/users/${userId}`, {
+      method: 'PUT',
+      body: payload,
+    })
+    return response
+  } catch (error) {
+    console.error('Error updating admin user:', error)
+    throw error
+  }
+}
+
+export async function deleteAdminUser(userId) {
+  try {
+    const response = await apiRequest(`/admin/users/${userId}`, {
+      method: 'DELETE',
+    })
+    return response
+  } catch (error) {
+    console.error('Error deleting admin user:', error)
+    throw error
+  }
+}
+
+export async function getPendingRecipes() {
+  try {
+    const response = await apiRequest('/admin/recipes/pending')
+    return response
+  } catch (error) {
+    console.error('Error fetching pending recipes:', error)
+    throw error
+  }
+}
+
+export async function approveRecipe(recipeId) {
+  try {
+    const response = await apiRequest(`/admin/recipes/${recipeId}/approve`, {
+      method: 'PUT',
+    })
+    return response
+  } catch (error) {
+    console.error('Error approving recipe:', error)
+    throw error
+  }
+}
+
+export async function getAdminRecipes() {
+  try {
+    const response = await apiRequest('/admin/recipes')
+    return response
+  } catch (error) {
+    console.error('Error fetching admin recipes:', error)
+    throw error
+  }
+}
+
+export async function createAdminRecipe(payload) {
+  try {
+    const response = await apiRequest('/admin/recipes', {
+      method: 'POST',
+      body: payload,
+    })
+    return response
+  } catch (error) {
+    console.error('Error creating admin recipe:', error)
+    throw error
+  }
+}
+
+export async function updateAdminRecipe(recipeId, payload) {
+  try {
+    const response = await apiRequest(`/admin/recipes/${recipeId}`, {
+      method: 'PUT',
+      body: payload,
+    })
+    return response
+  } catch (error) {
+    console.error('Error updating admin recipe:', error)
+    throw error
+  }
+}
+
+export async function deleteAdminRecipe(recipeId) {
+  try {
+    const response = await apiRequest(`/admin/recipes/${recipeId}`, {
+      method: 'DELETE',
+    })
+    return response
+  } catch (error) {
+    console.error('Error deleting admin recipe:', error)
     throw error
   }
 }
@@ -118,6 +264,162 @@ export async function getDashboardOverview() {
     return response
   } catch (error) {
     console.error('Error fetching dashboard overview:', error)
+    throw error
+  }
+}
+
+// Family Group APIs
+export async function getFamilyGroups() {
+  try {
+    const response = await apiRequest('/family-groups')
+    return response
+  } catch (error) {
+    console.error('Error fetching family groups:', error)
+    throw error
+  }
+}
+
+export async function getFamilyGroupById(groupId) {
+  try {
+    const response = await apiRequest(`/family-groups/${groupId}`)
+    return response
+  } catch (error) {
+    console.error('Error fetching family group:', error)
+    throw error
+  }
+}
+
+export async function createFamilyGroup(payload) {
+  try {
+    const response = await apiRequest('/family-groups', {
+      method: 'POST',
+      body: payload,
+    })
+    return response
+  } catch (error) {
+    console.error('Error creating family group:', error)
+    throw error
+  }
+}
+
+export async function updateFamilyGroup(groupId, payload) {
+  try {
+    const response = await apiRequest(`/family-groups/${groupId}`, {
+      method: 'PUT',
+      body: payload,
+    })
+    return response
+  } catch (error) {
+    console.error('Error updating family group:', error)
+    throw error
+  }
+}
+
+export async function addFamilyMember(groupId, payload) {
+  try {
+    const response = await apiRequest(`/family-groups/${groupId}/members`, {
+      method: 'POST',
+      body: payload,
+    })
+    return response
+  } catch (error) {
+    console.error('Error adding family member:', error)
+    throw error
+  }
+}
+
+export async function updateFamilyMemberRole(groupId, memberId, payload) {
+  try {
+    const response = await apiRequest(`/family-groups/${groupId}/members/${memberId}/role`, {
+      method: 'PUT',
+      body: payload,
+    })
+    return response
+  } catch (error) {
+    console.error('Error updating family member role:', error)
+    throw error
+  }
+}
+
+export async function removeFamilyMember(groupId, memberId) {
+  try {
+    const response = await apiRequest(`/family-groups/${groupId}/members/${memberId}`, {
+      method: 'DELETE',
+    })
+    return response
+  } catch (error) {
+    console.error('Error removing family member:', error)
+    throw error
+  }
+}
+
+export async function getFamilyInvites() {
+  try {
+    const response = await apiRequest('/family-groups/invites')
+    return response
+  } catch (error) {
+    console.error('Error fetching family invites:', error)
+    throw error
+  }
+}
+
+export async function acceptFamilyInvite(inviteId) {
+  try {
+    const response = await apiRequest(`/family-groups/invites/${inviteId}/accept`, {
+      method: 'POST',
+    })
+    return response
+  } catch (error) {
+    console.error('Error accepting family invite:', error)
+    throw error
+  }
+}
+
+export async function declineFamilyInvite(inviteId) {
+  try {
+    const response = await apiRequest(`/family-groups/invites/${inviteId}/decline`, {
+      method: 'POST',
+    })
+    return response
+  } catch (error) {
+    console.error('Error declining family invite:', error)
+    throw error
+  }
+}
+
+export async function cancelFamilyInvite(inviteId) {
+  try {
+    const response = await apiRequest(`/family-groups/invites/${inviteId}`, {
+      method: 'DELETE',
+    })
+    return response
+  } catch (error) {
+    console.error('Error canceling family invite:', error)
+    throw error
+  }
+}
+
+export async function leaveFamilyGroup(groupId) {
+  try {
+    const response = await apiRequest(`/family-groups/${groupId}/leave`, {
+      method: 'POST',
+    })
+    return response
+  } catch (error) {
+    console.error('Error leaving family group:', error)
+    throw error
+  }
+}
+
+export async function transferFamilyOwner(groupId, memberId) {
+  try {
+    const response = await apiRequest(`/family-groups/${groupId}/owner`, {
+      method: 'PUT',
+      body: { memberId },
+    })
+    return response
+  } catch (error) {
+    console.error('Error transferring family owner:', error)
     throw error
   }
 }

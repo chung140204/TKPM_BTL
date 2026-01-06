@@ -7,10 +7,13 @@ import { cookRecipe } from "@/utils/cookRecipe"
 import { cookRecipeApi, createShoppingList } from "@/utils/api"
 import { showToast } from "@/components/ui/Toast"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
+import { useAuth } from "@/contexts/AuthContext"
+import { ROLES } from "@/utils/roles"
 
 export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
   if (!recipe) return null
 
+  const { user } = useAuth()
   const [isCooking, setIsCooking] = useState(false)
   const [cookError, setCookError] = useState("")
   const [missingFromCook, setMissingFromCook] = useState(null)
@@ -68,9 +71,14 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
   const availableIngredients = resolveAvailableIngredients()
   const missingIngredients = resolveMissingIngredients()
   const canCreateShoppingList = missingIngredients.some(ing => ing.foodItemId && ing.unitId)
-  const canCook = missingIngredients.length === 0 // Chỉ cho phép nấu khi không thiếu nguyên liệu
+  const canCookByRole = user?.role === ROLES.HOMEMAKER || user?.role === ROLES.ADMIN
+  const canCook = missingIngredients.length === 0 && canCookByRole // Chỉ cho phép nấu khi đủ nguyên liệu và đúng quyền
 
   const handleCookClick = () => {
+    if (!canCookByRole) {
+      setCookError("Bạn không có quyền nấu món ăn.")
+      return
+    }
     setShowCookConfirm(true)
   }
 
@@ -361,9 +369,15 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
             className="flex-1" 
             onClick={handleCookClick} 
             disabled={isCooking || !canCook}
-            title={!canCook ? "Không thể nấu: Thiếu nguyên liệu" : ""}
+            title={!canCookByRole ? "Bạn không có quyền nấu món này" : !canCook ? "Không thể nấu: Thiếu nguyên liệu" : ""}
           >
-            {isCooking ? "Đang nấu..." : canCook ? "Bắt đầu nấu" : "Không đủ nguyên liệu"}
+            {isCooking
+              ? "Đang nấu..."
+              : !canCookByRole
+                ? "Không có quyền nấu"
+                : canCook
+                  ? "Bắt đầu nấu"
+                  : "Không đủ nguyên liệu"}
           </Button>
         </div>
 
@@ -400,5 +414,3 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
   </>
   )
 }
-
-

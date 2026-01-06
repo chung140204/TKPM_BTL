@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ShoppingCart, Loader2, Mail, Lock, Phone, User, Leaf } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { register as apiRegister } from "@/utils/api"
+import { ROLES } from "@/utils/roles"
 import { showToast } from "@/components/ui/Toast"
 
 export function Register() {
@@ -15,6 +16,7 @@ export function Register() {
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [phone, setPhone] = useState("")
+  const [role, setRole] = useState(ROLES.USER)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const navigate = useNavigate()
@@ -39,7 +41,7 @@ export function Register() {
     }
 
     try {
-      const response = await apiRegister(email, password, fullName, phone || undefined)
+      const response = await apiRegister(email, password, fullName, phone || undefined, role)
 
       if (response.success) {
         // Thông báo đăng ký thành công và chuyển về màn hình đăng nhập
@@ -142,6 +144,18 @@ export function Register() {
                         className="pl-9 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-0 focus-visible:border-emerald-500"
                       />
                     </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="role">Vai trò</Label>
+                    <select
+                      id="role"
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-0 focus-visible:border-emerald-500"
+                    >
+                      <option value={ROLES.USER}>Người dùng</option>
+                      <option value={ROLES.HOMEMAKER}>Nội trợ</option>
+                    </select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>

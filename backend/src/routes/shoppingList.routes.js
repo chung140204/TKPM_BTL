@@ -7,9 +7,10 @@ const express = require('express');
 const router = express.Router();
 const shoppingListController = require('../controllers/shoppingList.controller');
 const auth = require('../middleware/auth.middleware');
+const { attachViewContext } = require('../middleware/view.middleware');
 
 // Tất cả routes đều cần authentication
-router.use(auth);
+router.use(auth, attachViewContext);
 
 /**
  * @route   POST /api/shopping-lists/auto
@@ -68,4 +69,3 @@ router.put('/:id', shoppingListController.updateShoppingList);
 router.delete('/:id', shoppingListController.deleteShoppingList);
 
 module.exports = router;
-

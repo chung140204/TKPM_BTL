@@ -9,9 +9,9 @@ const Unit = require('../models/Unit.model');
 const Category = require('../models/Category.model');
 const ConsumptionLog = require('../models/ConsumptionLog.model');
 const Notification = require('../models/Notification.model');
-const User = require('../models/User.model');
 const notificationService = require('../services/notification.service');
-const { sendExpiryEmail } = require('../services/email.service');
+const { ROLES } = require('../config/roles');
+const { buildViewFilter, resolveFamilyGroupId } = require('../utils/view');
 // Require các models liên quan để Mongoose có thể populate
 require('../models/FoodItem.model');
 require('../models/Unit.model');
@@ -58,6 +58,10 @@ const checkAndCreateNotificationForItem = async (fridgeItem) => {
     
     // Ensure userId is ObjectId (not populated object)
     const userId = fridgeItem.userId._id || fridgeItem.userId;
+    const familyContext = await notificationService.getFamilyGroupContext(fridgeItem.familyGroupId);
+    const recipientIds = familyContext ? familyContext.memberIds : [userId];
+    const scope = familyContext ? 'family' : 'personal';
+    const familyGroupName = familyContext?.familyGroupName || null;
     const foodItemName = fridgeItem.foodItemId.name || 'Thực phẩm';
     const status = fridgeItem.status;
 
@@ -81,111 +85,85 @@ const checkAndCreateNotificationForItem = async (fridgeItem) => {
     if (daysLeft < 0) {
       // Item is expired
       // Check if notification already exists for this specific fridgeItem
-      const existingNotification = await Notification.findOne({
-        userId: userId,
-        type: 'expired',
-        relatedId: fridgeItem._id,
-        relatedType: 'FridgeItem'
-      });
+      const expiryDateStr = new Date(fridgeItem.expiryDate).toLocaleDateString('vi-VN');
+      const message = `Thực phẩm "${foodItemName}" đã hết hạn (HSD: ${expiryDateStr}). Vui lòng xử lý.`;
 
-      if (!existingNotification) {
-        const expiryDateStr = new Date(fridgeItem.expiryDate).toLocaleDateString('vi-VN');
+      for (const recipientId of recipientIds) {
+        const existingNotification = await Notification.findOne({
+          userId: recipientId,
+          type: 'expired',
+          relatedId: fridgeItem._id,
+          relatedType: 'FridgeItem'
+        });
+
+        if (existingNotification) {
+          continue;
+        }
+
         const notification = await Notification.create({
-          userId: userId,
+          userId: recipientId,
           type: 'expired',
           title: 'Thực phẩm đã hết hạn',
-          message: `Thực phẩm "${foodItemName}" đã hết hạn (HSD: ${expiryDateStr}). Vui lòng xử lý.`,
+          message,
           relatedId: fridgeItem._id,
           relatedType: 'FridgeItem',
+          scope,
+          familyGroupId: familyContext?.familyGroupId || null,
+          familyGroupName,
+          actionUrl: '/fridge',
+          actionLabel: notificationService.DEFAULT_ACTION_LABEL,
           isRead: false
         });
-        
-        console.log(`[Notification] ✅ Created expired notification for: ${foodItemName} (expiryDate: ${expiryDateStr})`);
-
-        // Gửi email thông báo hết hạn (nếu cấu hình email)
-        try {
-          const user = await User.findById(userId).select('email fullName');
-          if (user && user.email) {
-            await sendExpiryEmail({
-              to: user.email,
-              subject: notification.title,
-              text: notification.message,
-              html: `<p>Chào ${user.fullName || ''},</p><p>${notification.message}</p>`
-            });
-          }
-        } catch (emailError) {
-          console.error('[Email] Lỗi khi gửi email hết hạn:', emailError);
-        }
-      } else {
-        console.log(`[Notification] ⏭️  Expired notification already exists for: ${foodItemName}`);
+        await notificationService.sendNotificationEmail(notification, { userId: recipientId });
       }
+
+      console.log(`[Notification] ✅ Created expired notification for: ${foodItemName} (expiryDate: ${expiryDateStr})`);
     } else if (daysLeft >= 0 && daysLeft <= 3) {
       // Item is expiring soon (0-3 days)
-      // Check if notification already exists for this specific fridgeItem
-      const existingNotification = await Notification.findOne({
-        userId: userId,
-        type: 'expiring_soon',
-        relatedId: fridgeItem._id,
-        relatedType: 'FridgeItem'
-      });
+      const expiryDateStr = new Date(fridgeItem.expiryDate).toLocaleDateString('vi-VN');
+      let message;
+      if (daysLeft === 0) {
+        message = `Thực phẩm "${foodItemName}" sẽ hết hạn hôm nay (HSD: ${expiryDateStr}).`;
+      } else if (daysLeft === 1) {
+        message = `Thực phẩm "${foodItemName}" sẽ hết hạn trong 1 ngày (HSD: ${expiryDateStr}).`;
+      } else {
+        message = `Thực phẩm "${foodItemName}" sẽ hết hạn trong ${daysLeft} ngày (HSD: ${expiryDateStr}).`;
+      }
 
-      if (!existingNotification) {
-        // Format message according to requirements
-        // Include food name, days left, and expiry date
-        const expiryDateStr = new Date(fridgeItem.expiryDate).toLocaleDateString('vi-VN');
-        let message;
-        if (daysLeft === 0) {
-          message = `Thực phẩm "${foodItemName}" sẽ hết hạn hôm nay (HSD: ${expiryDateStr}).`;
-        } else if (daysLeft === 1) {
-          message = `Thực phẩm "${foodItemName}" sẽ hết hạn trong 1 ngày (HSD: ${expiryDateStr}).`;
-        } else {
-          message = `Thực phẩm "${foodItemName}" sẽ hết hạn trong ${daysLeft} ngày (HSD: ${expiryDateStr}).`;
+      for (const recipientId of recipientIds) {
+        const existingNotification = await Notification.findOne({
+          userId: recipientId,
+          type: 'expiring_soon',
+          relatedId: fridgeItem._id,
+          relatedType: 'FridgeItem'
+        });
+
+        if (existingNotification) {
+          continue;
         }
 
         const notification = await Notification.create({
-          userId: userId,
+          userId: recipientId,
           type: 'expiring_soon',
           title: 'Thực phẩm sắp hết hạn',
-          message: message,
+          message,
           relatedId: fridgeItem._id,
           relatedType: 'FridgeItem',
+          scope,
+          familyGroupId: familyContext?.familyGroupId || null,
+          familyGroupName,
+          actionUrl: '/fridge',
+          actionLabel: notificationService.DEFAULT_ACTION_LABEL,
           isRead: false
         });
-        
-        console.log(`[Notification] ✅ Created expiring_soon notification for: ${foodItemName} (${daysLeft} days left, expiryDate: ${expiryDateStr})`);
-
-        // Gửi email thông báo sắp hết hạn (nếu cấu hình email)
-        try {
-          const user = await User.findById(userId).select('email fullName');
-          if (user && user.email) {
-            await sendExpiryEmail({
-              to: user.email,
-              subject: notification.title,
-              text: notification.message,
-              html: `<p>Chào ${user.fullName || ''},</p><p>${notification.message}</p><p>Vui lòng kiểm tra tủ lạnh và sử dụng thực phẩm này sớm để tránh lãng phí.</p>`
-            });
-          }
-        } catch (emailError) {
-          console.error('[Email] Lỗi khi gửi email sắp hết hạn:', emailError);
-        }
-
-        // Gửi email thông báo sắp hết hạn (nếu cấu hình email)
-        try {
-          const user = await User.findById(userId).select('email fullName');
-          if (user && user.email) {
-            await sendExpiryEmail({
-              to: user.email,
-              subject: notification.title,
-              text: notification.message,
-              html: `<p>Chào ${user.fullName || ''},</p><p>${notification.message}</p>`
-            });
-          }
-        } catch (emailError) {
-          console.error('[Email] Lỗi khi gửi email sắp hết hạn:', emailError);
-        }
-      } else {
-        console.log(`[Notification] ⏭️  Expiring_soon notification already exists for: ${foodItemName}`);
+        await notificationService.sendNotificationEmail(notification, {
+          userId: recipientId,
+          extraText: 'Vui long kiem tra tu lanh va su dung thuc pham nay som de tranh lang phi.',
+          extraHtml: 'Vui long kiem tra tu lanh va su dung thuc pham nay som de tranh lang phi.'
+        });
       }
+
+      console.log(`[Notification] ✅ Created expiring_soon notification for: ${foodItemName} (${daysLeft} days left, expiryDate: ${expiryDateStr})`);
     } else {
       console.log(`[Notification] ⏭️  Skipping notification for ${foodItemName}: daysLeft=${daysLeft} (not expiring soon or expired)`);
     }
@@ -208,7 +186,7 @@ const checkAndCreateNotificationForItem = async (fridgeItem) => {
 exports.getFridgeItems = async (req, res, next) => {
   try {
     const { status, categoryId, storageLocation } = req.query;
-    const query = { userId: req.user.id };
+    const query = buildViewFilter(req);
     
     if (status) query.status = status;
     if (storageLocation) query.storageLocation = storageLocation;
@@ -259,9 +237,10 @@ exports.getExpiringItems = async (req, res, next) => {
     const threeDaysLater = new Date();
     threeDaysLater.setDate(threeDaysLater.getDate() + 3);
 
+    const viewFilter = buildViewFilter(req);
     // Query thực phẩm sắp hết hạn (trong 3 ngày tới)
     let fridgeItems = await FridgeItem.find({
-      userId: req.user.id,
+      ...viewFilter,
       expiryDate: {
         $gte: now,           // Chưa hết hạn
         $lte: threeDaysLater // Trong 3 ngày tới
@@ -308,7 +287,11 @@ exports.getExpiringItems = async (req, res, next) => {
 
 exports.getFridgeItemById = async (req, res, next) => {
   try {
-    const fridgeItem = await FridgeItem.findById(req.params.id)
+    const viewFilter = buildViewFilter(req);
+    const fridgeItem = await FridgeItem.findOne({
+      _id: req.params.id,
+      ...viewFilter
+    })
       .populate({
         path: 'foodItemId',
         populate: {
@@ -350,6 +333,7 @@ exports.getFridgeItemById = async (req, res, next) => {
 exports.createFridgeItem = async (req, res, next) => {
   try {
     const { expiryDate, foodItemId, quantity, ...otherData } = req.body;
+
     
     // Validate required fields
     if (!foodItemId || !quantity) {
@@ -370,18 +354,23 @@ exports.createFridgeItem = async (req, res, next) => {
     const expiryDateEnd = new Date(finalExpiryDate);
     expiryDateEnd.setDate(expiryDateEnd.getDate() + 1);
     const storageLocationValue = otherData.storageLocation || 'Ngăn mát';
-    const familyGroupIdValue = otherData.familyGroupId || null;
+    const familyGroupIdValue = resolveFamilyGroupId(req);
     
-    // Kiểm tra đã tồn tại FridgeItem với cùng userId, foodItemId, expiryDate
-    const existingItem = await FridgeItem.findOne({
-      userId: req.user.id,
+    // Kiểm tra đã tồn tại FridgeItem với cùng foodItemId, expiryDate
+    const existingItemQuery = {
       foodItemId: foodItemId,
       unitId: otherData.unitId,
       expiryDate: { $gte: expiryDateStart, $lt: expiryDateEnd },
       storageLocation: storageLocationValue,
       familyGroupId: familyGroupIdValue,
       status: { $ne: 'used_up' } // Chỉ kiểm tra items chưa hết
-    });
+    };
+
+    if (req.view !== 'family') {
+      existingItemQuery.userId = req.user.id;
+    }
+
+    const existingItem = await FridgeItem.findOne(existingItemQuery);
 
     let fridgeItem;
     let isNewItem = false;
@@ -470,16 +459,35 @@ exports.updateFridgeItem = async (req, res, next) => {
       });
     }
 
-    // Kiểm tra quyền
-    if (fridgeItem.userId.toString() !== req.user.id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Chỉ chủ sở hữu mới được cập nhật thực phẩm này'
-      });
+    if (req.view === 'family') {
+      if (!fridgeItem.familyGroupId || !req.familyGroup || fridgeItem.familyGroupId.toString() !== req.familyGroup._id.toString()) {
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy thực phẩm trong nhóm gia đình'
+        });
+      }
+
+      if (req.user.role === ROLES.USER) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không có quyền cập nhật thực phẩm trong nhóm gia đình'
+        });
+      }
+    } else {
+      // Kiểm tra quyền
+      if (fridgeItem.userId.toString() !== req.user.id.toString() || fridgeItem.familyGroupId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Chỉ chủ sở hữu mới được cập nhật thực phẩm này'
+        });
+      }
     }
 
     // Cập nhật
-    Object.assign(fridgeItem, req.body);
+    const updates = { ...req.body };
+    delete updates.userId;
+    delete updates.familyGroupId;
+    Object.assign(fridgeItem, updates);
     
     // Tự động cập nhật status (luôn gọi để đảm bảo status chính xác)
     fridgeItem.updateStatus();
@@ -550,12 +558,28 @@ exports.useFridgeItem = async (req, res, next) => {
       });
     }
 
-    // Kiểm tra quyền (chỉ user sở hữu mới được dùng)
-    if (fridgeItem.userId.toString() !== req.user.id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Chỉ chủ sở hữu mới được sử dụng thực phẩm này'
-      });
+    if (req.view === 'family') {
+      if (!fridgeItem.familyGroupId || !req.familyGroup || fridgeItem.familyGroupId.toString() !== req.familyGroup._id.toString()) {
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy thực phẩm trong nhóm gia đình'
+        });
+      }
+
+      if (req.user.role === ROLES.USER) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không có quyền sử dụng thực phẩm trong nhóm gia đình'
+        });
+      }
+    } else {
+      // Kiểm tra quyền (chỉ user sở hữu mới được dùng)
+      if (fridgeItem.userId.toString() !== req.user.id.toString() || fridgeItem.familyGroupId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Chỉ chủ sở hữu mới được sử dụng thực phẩm này'
+        });
+      }
     }
 
     // Kiểm tra số lượng hiện có
@@ -583,6 +607,7 @@ exports.useFridgeItem = async (req, res, next) => {
     try {
       await ConsumptionLog.create({
         userId: req.user.id,
+        familyGroupId: req.view === 'family' && req.familyGroup ? req.familyGroup._id : null,
         foodItemId: fridgeItem.foodItemId,
         unitId: fridgeItem.unitId,
         fridgeItemId: fridgeItem._id,
@@ -619,12 +644,28 @@ exports.deleteFridgeItem = async (req, res, next) => {
       });
     }
 
-    // Kiểm tra quyền (chỉ owner mới được xóa)
-    if (fridgeItem.userId.toString() !== req.user.id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Chỉ chủ sở hữu mới được xóa thực phẩm này'
-      });
+    if (req.view === 'family') {
+      if (!fridgeItem.familyGroupId || !req.familyGroup || fridgeItem.familyGroupId.toString() !== req.familyGroup._id.toString()) {
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy thực phẩm trong nhóm gia đình'
+        });
+      }
+
+      if (req.user.role === ROLES.USER) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không có quyền xóa thực phẩm trong nhóm gia đình'
+        });
+      }
+    } else {
+      // Kiểm tra quyền (chỉ owner mới được xóa)
+      if (fridgeItem.userId.toString() !== req.user.id.toString() || fridgeItem.familyGroupId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Chỉ chủ sở hữu mới được xóa thực phẩm này'
+        });
+      }
     }
 
     const fridgeItemId = fridgeItem._id;
@@ -790,15 +831,21 @@ exports.createFridgeItemSimple = async (req, res, next) => {
     const expiryDateEnd = new Date(finalExpiryDate);
     expiryDateEnd.setDate(expiryDateEnd.getDate() + 1);
 
-    const existingItem = await FridgeItem.findOne({
-      userId: req.user.id,
+    const familyGroupIdValue = resolveFamilyGroupId(req);
+    const existingItemQuery = {
       foodItemId: foodItemDoc._id,
       unitId: unitDoc._id,
       expiryDate: { $gte: expiryDateStart, $lt: expiryDateEnd },
       storageLocation: storageLocation || foodItemDoc.defaultStorageLocation || 'Ngăn mát',
-      familyGroupId: null,
+      familyGroupId: familyGroupIdValue,
       status: { $ne: 'used_up' }
-    });
+    };
+
+    if (req.view !== 'family') {
+      existingItemQuery.userId = req.user.id;
+    }
+
+    const existingItem = await FridgeItem.findOne(existingItemQuery);
 
     if (existingItem) {
       existingItem.quantity += quantityValue;
@@ -840,6 +887,7 @@ exports.createFridgeItemSimple = async (req, res, next) => {
 
     const fridgeItem = await FridgeItem.create({
       userId: req.user.id,
+      familyGroupId: familyGroupIdValue,
       foodItemId: foodItemDoc._id,
       unitId: unitDoc._id,
       quantity: quantityValue,

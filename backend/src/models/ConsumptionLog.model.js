@@ -11,6 +11,11 @@ const consumptionLogSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  familyGroupId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FamilyGroup',
+    default: null
+  },
   foodItemId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'FoodItem',
@@ -46,6 +51,7 @@ const consumptionLogSchema = new mongoose.Schema({
 });
 
 consumptionLogSchema.index({ userId: 1, createdAt: -1 });
+consumptionLogSchema.index({ familyGroupId: 1, createdAt: -1 });
 consumptionLogSchema.index({ userId: 1, foodItemId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('ConsumptionLog', consumptionLogSchema);

@@ -1,16 +1,42 @@
 const mongoose = require('mongoose');
 const Recipe = require('../models/Recipe.model');
 const FridgeItem = require('../models/FridgeItem.model');
+const { ROLES } = require('../config/roles');
+const { buildViewFilter, resolveFamilyGroupId } = require('../utils/view');
 const Notification = require('../models/Notification.model');
 const ConsumptionLog = require('../models/ConsumptionLog.model');
+const FamilyGroup = require('../models/FamilyGroup.model');
+const notificationService = require('../services/notification.service');
 // Require các models liên quan để Mongoose có thể populate
 require('../models/FoodItem.model');
 require('../models/Unit.model');
 
+const getPublicRecipeFilter = () => ({
+  isApproved: true,
+  $or: [
+    { visibility: 'public' },
+    { visibility: { $exists: false } }
+  ]
+});
+
+const buildRecipeAccessFilter = (req) => {
+  if (!req?.user) {
+    return getPublicRecipeFilter();
+  }
+
+  return {
+    $or: [
+      getPublicRecipeFilter(),
+      { visibility: 'private', createdBy: req.user.id },
+      { visibility: { $exists: false }, createdBy: req.user.id, isApproved: false }
+    ]
+  };
+};
+
 /**
  * @desc    Tìm kiếm recipes theo nguyên liệu
  * @route   GET /api/recipes/search?ingredients=id1,id2,id3&category=...&difficulty=...&servings=...
- * @access  Public
+ * @access  Private
  */
 exports.searchRecipes = async (req, res, next) => {
   try {
@@ -23,7 +49,7 @@ exports.searchRecipes = async (req, res, next) => {
     }
 
     // Build query
-    const query = { isApproved: true };
+    const query = buildRecipeAccessFilter(req);
 
     if (category) {
       query.category = category;
@@ -126,14 +152,14 @@ exports.searchRecipes = async (req, res, next) => {
 /**
  * @desc    Lấy danh sách recipes với filter
  * @route   GET /api/recipes?category=...&difficulty=...&servings=...
- * @access  Public
+ * @access  Private
  */
 exports.getRecipes = async (req, res, next) => {
   try {
     const { category, difficulty, servings } = req.query;
 
     // Build query
-    const query = { isApproved: true };
+    const query = buildRecipeAccessFilter(req);
 
     if (category) {
       query.category = category;
@@ -165,6 +191,7 @@ exports.getRecipes = async (req, res, next) => {
       category: recipe.category,
       difficulty: recipe.difficulty,
       servings: recipe.servings,
+      visibility: recipe.visibility || 'public',
       favoriteCount: recipe.favoriteCount || 0,
       ingredients: recipe.ingredients.map(ing => ({
         foodItemId: ing.foodItemId._id,
@@ -192,7 +219,10 @@ exports.getRecipes = async (req, res, next) => {
 
 exports.getRecipeById = async (req, res, next) => {
   try {
-    const recipe = await Recipe.findById(req.params.id)
+    const recipe = await Recipe.findOne({
+      _id: req.params.id,
+      ...buildRecipeAccessFilter(req)
+    })
       .populate('ingredients.foodItemId', 'name image categoryId')
       .populate('ingredients.unitId', 'name abbreviation type');
 
@@ -214,10 +244,16 @@ exports.getRecipeById = async (req, res, next) => {
 
 exports.createRecipe = async (req, res, next) => {
   try {
+    const isAdmin = req.user.role === ROLES.ADMIN;
+    const visibility = isAdmin ? 'public' : 'private';
+
     const recipe = await Recipe.create({
       ...req.body,
       createdBy: req.user.id,
-      isApproved: req.user.role === 'admin' // Admin tự động approve
+      visibility,
+      isApproved: isAdmin,
+      approvedBy: isAdmin ? req.user.id : null,
+      approvedAt: isAdmin ? new Date() : null
     });
 
     res.status(201).json({
@@ -232,11 +268,7 @@ exports.createRecipe = async (req, res, next) => {
 
 exports.updateRecipe = async (req, res, next) => {
   try {
-    const recipe = await Recipe.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const recipe = await Recipe.findById(req.params.id);
 
     if (!recipe) {
       return res.status(404).json({
@@ -245,10 +277,45 @@ exports.updateRecipe = async (req, res, next) => {
       });
     }
 
+    const isAdmin = req.user.role === ROLES.ADMIN;
+    const isOwner = recipe.createdBy?.toString() === req.user.id;
+    const isPublicRecipe = recipe.visibility !== 'private' && recipe.isApproved === true;
+    const canEditPrivate = isOwner && (
+      recipe.visibility === 'private' ||
+      (recipe.visibility === undefined && recipe.isApproved === false)
+    );
+
+    if (isAdmin) {
+      if (!isPublicRecipe) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không có quyền cập nhật công thức này'
+        });
+      }
+    } else if (!canEditPrivate) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền cập nhật công thức này'
+      });
+    }
+
+    const updates = { ...req.body };
+    delete updates.createdBy;
+    delete updates.visibility;
+    delete updates.isApproved;
+    delete updates.approvedBy;
+    delete updates.approvedAt;
+
+    const updatedRecipe = await Recipe.findByIdAndUpdate(
+      req.params.id,
+      updates,
+      { new: true, runValidators: true }
+    );
+
     res.json({
       success: true,
       message: 'Cập nhật công thức thành công',
-      data: { recipe }
+      data: { recipe: updatedRecipe }
     });
   } catch (error) {
     next(error);
@@ -263,6 +330,28 @@ exports.deleteRecipe = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         message: 'Không tìm thấy công thức'
+      });
+    }
+
+    const isAdmin = req.user.role === ROLES.ADMIN;
+    const isOwner = recipe.createdBy?.toString() === req.user.id;
+    const isPublicRecipe = recipe.visibility !== 'private' && recipe.isApproved === true;
+    const canDeletePrivate = isOwner && (
+      recipe.visibility === 'private' ||
+      (recipe.visibility === undefined && recipe.isApproved === false)
+    );
+
+    if (isAdmin) {
+      if (!isPublicRecipe) {
+        return res.status(403).json({
+          success: false,
+          message: 'Bạn không có quyền xóa công thức này'
+        });
+      }
+    } else if (!canDeletePrivate) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền xóa công thức này'
       });
     }
 
@@ -294,14 +383,14 @@ exports.deleteRecipe = async (req, res, next) => {
  */
 exports.suggestRecipes = async (req, res, next) => {
   try {
-    const userId = req.user.id;
     const now = new Date();
     const threeDaysLater = new Date();
     threeDaysLater.setDate(threeDaysLater.getDate() + 3);
 
     // 1. Lấy tất cả FridgeItem của user (chỉ lấy available và expiring_soon)
+    const viewFilter = buildViewFilter(req);
     let fridgeItems = await FridgeItem.find({
-      userId: userId,
+      ...viewFilter,
       status: { $in: ['available', 'expiring_soon'] },
       quantity: { $gt: 0 } // Chỉ lấy items còn số lượng > 0
     })
@@ -360,8 +449,9 @@ exports.suggestRecipes = async (req, res, next) => {
       }
     });
 
-    // 2. Lấy tất cả Recipe đã được approve
-    let recipes = await Recipe.find({ isApproved: true })
+    // 2. Lấy tất cả Recipe được phép truy cập
+    const recipeFilter = buildRecipeAccessFilter(req);
+    let recipes = await Recipe.find(recipeFilter)
       .populate('ingredients.foodItemId', 'name')
       .populate('ingredients.unitId', 'name abbreviation');
     
@@ -484,11 +574,13 @@ exports.suggestRecipes = async (req, res, next) => {
  */
 exports.checkIngredients = async (req, res, next) => {
   try {
-    const userId = req.user.id;
     const recipeId = req.params.id;
 
     // 1. Lấy Recipe theo ID
-    const recipe = await Recipe.findById(recipeId)
+    const recipe = await Recipe.findOne({
+      _id: recipeId,
+      ...buildRecipeAccessFilter(req)
+    })
       .populate('ingredients.foodItemId', 'name')
       .populate('ingredients.unitId', 'name abbreviation');
 
@@ -500,8 +592,9 @@ exports.checkIngredients = async (req, res, next) => {
     }
 
     // 2. Lấy FridgeItem của user (chỉ lấy available và expiring_soon, quantity > 0)
+    const viewFilter = buildViewFilter(req);
     let fridgeItems = await FridgeItem.find({
-      userId: userId,
+      ...viewFilter,
       status: { $in: ['available', 'expiring_soon'] },
       quantity: { $gt: 0 }
     })
@@ -622,7 +715,10 @@ exports.cookRecipe = async (req, res, next) => {
     const recipeId = req.params.id;
 
     // 1. Lấy Recipe theo ID
-    const recipe = await Recipe.findById(recipeId)
+    const recipe = await Recipe.findOne({
+      _id: recipeId,
+      ...buildRecipeAccessFilter(req)
+    })
       .populate('ingredients.foodItemId', 'name')
       .populate('ingredients.unitId', 'name abbreviation');
 
@@ -633,9 +729,10 @@ exports.cookRecipe = async (req, res, next) => {
       });
     }
 
-    // 2. Lấy FridgeItem của user (chỉ lấy available và expiring_soon, quantity > 0)
+    // 2. Lấy FridgeItem theo view (chỉ lấy available và expiring_soon, quantity > 0)
+    const viewFilter = buildViewFilter(req);
     let fridgeItems = await FridgeItem.find({
-      userId: userId,
+      ...viewFilter,
       status: { $in: ['available', 'expiring_soon'] },
       quantity: { $gt: 0 }
     })
@@ -754,6 +851,7 @@ exports.cookRecipe = async (req, res, next) => {
         if (subtractAmount > 0) {
           consumptionLogs.push({
             userId: userId,
+            familyGroupId: resolveFamilyGroupId(req),
             foodItemId: fridgeItem.foodItemId?._id || ingredient.foodItemId._id,
             unitId: fridgeItem.unitId?._id || ingredient.unitId._id,
             fridgeItemId: fridgeItem._id,
@@ -774,15 +872,50 @@ exports.cookRecipe = async (req, res, next) => {
     }
 
     // 8. Tạo notification
-    await Notification.create({
-      userId: userId,
-      type: 'recipe_cooked',
-      title: 'Đã nấu món ăn',
-      message: `Bạn đã nấu món "${recipe.name}"`,
-      relatedId: recipe._id,
-      relatedType: 'Recipe',
-      isRead: false
-    });
+    const familyGroupId = resolveFamilyGroupId(req);
+    const actorName = req.user.fullName || req.user.email || 'Thành viên';
+
+    if (familyGroupId) {
+      const familyGroup = await FamilyGroup.findById(familyGroupId)
+        .populate('members.userId', 'fullName email');
+      const memberIds = familyGroup
+        ? familyGroup.members.map(member => member.userId._id)
+        : [userId];
+
+      for (const memberId of memberIds) {
+        const notification = await Notification.create({
+          userId: memberId,
+          type: 'recipe_cooked',
+          title: 'Món ăn đã được nấu',
+          message: `${actorName} đã nấu món "${recipe.name}"`,
+          relatedId: recipe._id,
+          relatedType: 'Recipe',
+          scope: 'family',
+          familyGroupId,
+          familyGroupName: familyGroup?.name || null,
+          actorId: req.user.id,
+          actorName,
+          actionUrl: '/recipes',
+          actionLabel: notificationService.DEFAULT_ACTION_LABEL,
+          isRead: false
+        });
+        await notificationService.sendNotificationEmail(notification, { userId: memberId });
+      }
+    } else {
+      const notification = await Notification.create({
+        userId: userId,
+        type: 'recipe_cooked',
+        title: 'Đã nấu món ăn',
+        message: `Bạn đã nấu món "${recipe.name}"`,
+        relatedId: recipe._id,
+        relatedType: 'Recipe',
+        scope: 'personal',
+        actionUrl: '/recipes',
+        actionLabel: notificationService.DEFAULT_ACTION_LABEL,
+        isRead: false
+      });
+      await notificationService.sendNotificationEmail(notification, { userId });
+    }
 
     // 9. Trả về success message
     res.json({

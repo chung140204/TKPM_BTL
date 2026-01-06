@@ -3,6 +3,8 @@
  * Kiểm tra quyền truy cập dựa trên role
  */
 
+const { ROLES } = require('../config/roles');
+
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -10,6 +12,10 @@ const authorize = (...roles) => {
         success: false,
         message: 'Chưa xác thực'
       });
+    }
+
+    if (req.user.role === ROLES.ADMIN) {
+      return next();
     }
 
     if (!roles.includes(req.user.role)) {

@@ -12,10 +12,22 @@ import { Statistics } from "@/pages/Statistics"
 import { MealPlanner } from "@/pages/MealPlanner"
 import { Profile } from "@/pages/Profile"
 import { ChangePassword } from "@/pages/ChangePassword"
+import { FamilyGroup } from "@/pages/FamilyGroup"
+import { AdminStats } from "@/pages/admin/AdminStats"
+import { AdminUsers } from "@/pages/admin/AdminUsers"
+import { AdminRecipes } from "@/pages/admin/AdminRecipes"
+import { ROLES } from "@/utils/roles"
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth()
   return isAuthenticated ? children : <Navigate to="/login" />
+}
+
+function RoleRoute({ allowedRoles, redirectTo = "/", children }) {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" />
+  if (!allowedRoles.includes(user.role)) return <Navigate to={redirectTo} />
+  return children
 }
 
 function AppRoutes() {
@@ -27,9 +39,11 @@ function AppRoutes() {
         path="/"
         element={
           <ProtectedRoute>
-            <MainLayout>
-              <Dashboard />
-            </MainLayout>
+            <RoleRoute allowedRoles={[ROLES.USER, ROLES.HOMEMAKER]} redirectTo="/admin/stats">
+              <MainLayout>
+                <Dashboard />
+              </MainLayout>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
@@ -57,9 +71,11 @@ function AppRoutes() {
         path="/fridge"
         element={
           <ProtectedRoute>
-            <MainLayout>
-              <Fridge />
-            </MainLayout>
+            <RoleRoute allowedRoles={[ROLES.USER, ROLES.HOMEMAKER]} redirectTo="/admin/stats">
+              <MainLayout>
+                <Fridge />
+              </MainLayout>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
@@ -67,9 +83,11 @@ function AppRoutes() {
         path="/recipes"
         element={
           <ProtectedRoute>
-            <MainLayout>
-              <Recipes />
-            </MainLayout>
+            <RoleRoute allowedRoles={[ROLES.USER, ROLES.HOMEMAKER]} redirectTo="/admin/stats">
+              <MainLayout>
+                <Recipes />
+              </MainLayout>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
@@ -77,9 +95,23 @@ function AppRoutes() {
         path="/shopping"
         element={
           <ProtectedRoute>
-            <MainLayout>
-              <Shopping />
-            </MainLayout>
+            <RoleRoute allowedRoles={[ROLES.USER, ROLES.HOMEMAKER]} redirectTo="/admin/stats">
+              <MainLayout>
+                <Shopping />
+              </MainLayout>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/family-groups"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={[ROLES.USER, ROLES.HOMEMAKER]} redirectTo="/admin/stats">
+              <MainLayout>
+                <FamilyGroup />
+              </MainLayout>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
@@ -87,9 +119,11 @@ function AppRoutes() {
         path="/statistics"
         element={
           <ProtectedRoute>
-            <MainLayout>
-              <Statistics />
-            </MainLayout>
+            <RoleRoute allowedRoles={[ROLES.USER, ROLES.HOMEMAKER]} redirectTo="/admin/stats">
+              <MainLayout>
+                <Statistics />
+              </MainLayout>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
@@ -97,9 +131,48 @@ function AppRoutes() {
         path="/meal-planner"
         element={
           <ProtectedRoute>
-            <MainLayout>
-              <MealPlanner />
-            </MainLayout>
+            <RoleRoute allowedRoles={[ROLES.HOMEMAKER]} redirectTo="/admin/stats">
+              <MainLayout>
+                <MealPlanner />
+              </MainLayout>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/admin" element={<Navigate to="/admin/stats" replace />} />
+      <Route
+        path="/admin/stats"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={[ROLES.ADMIN]} redirectTo="/">
+              <MainLayout>
+                <AdminStats />
+              </MainLayout>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/users"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={[ROLES.ADMIN]} redirectTo="/">
+              <MainLayout>
+                <AdminUsers />
+              </MainLayout>
+            </RoleRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/recipes"
+        element={
+          <ProtectedRoute>
+            <RoleRoute allowedRoles={[ROLES.ADMIN]} redirectTo="/">
+              <MainLayout>
+                <AdminRecipes />
+              </MainLayout>
+            </RoleRoute>
           </ProtectedRoute>
         }
       />
@@ -120,4 +193,3 @@ function App() {
 }
 
 export default App
-

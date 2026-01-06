@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ShoppingCart, Loader2, Mail, Lock, Leaf } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { login as apiLogin } from "@/utils/api"
+import { ROLES } from "@/utils/roles"
 
 export function Login() {
   const [email, setEmail] = useState("")
@@ -15,14 +16,18 @@ export function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const navigate = useNavigate()
-  const { login, isAuthenticated } = useAuth()
+  const { login, isAuthenticated, user } = useAuth()
+
+  const getDefaultRoute = (role) => (
+    role === ROLES.ADMIN ? "/admin/stats" : "/"
+  )
 
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      navigate("/")
+      navigate(getDefaultRoute(user?.role))
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, navigate, user?.role])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -42,7 +47,7 @@ export function Login() {
         
         // Update auth context with user info if available
         login(response.data.user)
-        navigate("/")
+        navigate(getDefaultRoute(response.data.user?.role))
       } else {
         throw new Error(response.message || 'Đăng nhập thất bại')
       }
@@ -52,8 +57,8 @@ export function Login() {
       if (err.message.includes('Failed to fetch') || err.message.includes('API Error')) {
         // API not available, use mock login with fallback user
         console.warn('API not available, using mock login')
-        login({ fullName: 'Demo User', email })
-        navigate("/")
+        login({ fullName: 'Demo User', email, role: ROLES.USER })
+        navigate(getDefaultRoute(ROLES.USER))
       } else {
         setError(err.message || 'Đăng nhập thất bại. Vui lòng thử lại.')
       }

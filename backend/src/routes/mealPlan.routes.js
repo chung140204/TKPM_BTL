@@ -2,8 +2,11 @@ const express = require('express');
 const router = express.Router();
 const mealPlanController = require('../controllers/mealPlan.controller');
 const auth = require('../middleware/auth.middleware');
+const authorize = require('../middleware/authorize.middleware');
+const { ROLES } = require('../config/roles');
+const { attachViewContext } = require('../middleware/view.middleware');
 
-router.use(auth);
+router.use(auth, attachViewContext, authorize(ROLES.HOMEMAKER));
 
 router.get('/', mealPlanController.getMealPlans);
 router.post('/', mealPlanController.createMealPlan);

@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User.model');
 const jwtConfig = require('../config/jwt');
 const { validationResult } = require('express-validator');
+const { ROLES } = require('../config/roles');
 
 /**
  * Generate JWT Token
@@ -42,7 +43,15 @@ exports.register = async (req, res, next) => {
       });
     }
 
-    const { email, password, fullName, phone } = req.body;
+    const { email, password, fullName, phone, role } = req.body;
+    const normalizedRole = role ? role.toLowerCase() : ROLES.USER;
+
+    if (![ROLES.USER, ROLES.HOMEMAKER].includes(normalizedRole)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Role không hợp lệ'
+      });
+    }
 
     // Kiểm tra email đã tồn tại
     const existingUser = await User.findOne({ email });
@@ -58,7 +67,8 @@ exports.register = async (req, res, next) => {
       email,
       password,
       fullName,
-      phone: phone || null
+      phone: phone || null,
+      role: normalizedRole
     });
 
     // Generate token

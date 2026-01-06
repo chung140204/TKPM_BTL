@@ -3,7 +3,7 @@ import { Dialog } from "@/components/ui/Dialog"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Label } from "@/components/ui/Label"
-import { Plus, X, Calendar, Users } from "lucide-react"
+import { Plus, X, Calendar } from "lucide-react"
 import { showToast } from "@/components/ui/Toast"
 import { getCategories, getFoodItems, getUnits } from "@/utils/api"
 
@@ -30,7 +30,6 @@ export function CreateShoppingListDialog({
 
   const [listName, setListName] = useState("")
   const [plannedDate, setPlannedDate] = useState(getTodayDate())
-  const [familyGroupId, setFamilyGroupId] = useState("")
   const [categories, setCategories] = useState([])
   const [units, setUnits] = useState([])
   const [foodItems, setFoodItems] = useState([])
@@ -170,7 +169,6 @@ export function CreateShoppingListDialog({
 
     setListName(initialList.name || "")
     setPlannedDate(plannedDateValue)
-    setFamilyGroupId(initialList.familyGroupId || "")
 
     const nextItems = (initialList.items || []).map(item => {
       const { quantity, unit } = parseQuantityAndUnit(item.quantity)
@@ -339,7 +337,6 @@ export function CreateShoppingListDialog({
       name: listName.trim(),
       status: initialList?.status || "active",
       plannedDate: plannedDate || getTodayDate(),
-      familyGroupId: familyGroupId || null,
       items: validItems.map(item => ({
         id: item.id.toString(),
         name: item.name.trim(),
@@ -363,7 +360,6 @@ export function CreateShoppingListDialog({
 
     setListName("")
     setPlannedDate(getTodayDate())
-    setFamilyGroupId("")
     setItems([
       {
         id: Date.now(),
@@ -414,21 +410,6 @@ export function CreateShoppingListDialog({
               className="pl-10"
               min={new Date().toISOString().split("T")[0]}
             />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="familyGroup">Chia sẻ với</Label>
-          <div className="relative">
-            <Users className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <select
-              id="familyGroup"
-              value={familyGroupId}
-              onChange={(e) => setFamilyGroupId(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="">Cá nhân</option>
-            </select>
           </div>
         </div>
 

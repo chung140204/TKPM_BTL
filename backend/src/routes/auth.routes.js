@@ -19,7 +19,8 @@ router.post(
   [
     body('email').isEmail().withMessage('Email không hợp lệ'),
     body('password').isLength({ min: 6 }).withMessage('Mật khẩu phải có ít nhất 6 ký tự'),
-    body('fullName').notEmpty().withMessage('Họ tên là bắt buộc')
+    body('fullName').notEmpty().withMessage('Họ tên là bắt buộc'),
+    body('role').optional().trim().toLowerCase().isIn(['user', 'homemaker']).withMessage('Role không hợp lệ')
   ],
   authController.register
 );

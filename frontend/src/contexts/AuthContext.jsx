@@ -21,8 +21,18 @@ export function AuthProvider({ children }) {
     }
     return null
   })
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem("viewMode") || "personal"
+  })
 
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (user && !user.familyGroupId && viewMode === "family") {
+      setViewMode("personal")
+      localStorage.setItem("viewMode", "personal")
+    }
+  }, [user, viewMode])
 
   // Keep auth state in sync with token on mount
   useEffect(() => {
@@ -45,6 +55,12 @@ export function AuthProvider({ children }) {
       setUser(userData)
       localStorage.setItem("userProfile", JSON.stringify(userData))
     }
+
+    const hasFamily = !!userData?.familyGroupId
+    const storedView = localStorage.getItem("viewMode")
+    const nextView = hasFamily && storedView === "family" ? "family" : "personal"
+    setViewMode(nextView)
+    localStorage.setItem("viewMode", nextView)
   }
 
   const logout = () => {
@@ -55,6 +71,8 @@ export function AuthProvider({ children }) {
     localStorage.removeItem("token")
     localStorage.removeItem("theme")
     localStorage.removeItem("userProfile")
+    localStorage.removeItem("viewMode")
+    setViewMode("personal")
     navigate("/login")
   }
 
@@ -62,12 +80,24 @@ export function AuthProvider({ children }) {
     setUser((prev) => {
       const next = { ...(prev || {}), ...partial }
       localStorage.setItem("userProfile", JSON.stringify(next))
+      const hasFamily = !!next?.familyGroupId
+      if (!hasFamily) {
+        setViewMode("personal")
+        localStorage.setItem("viewMode", "personal")
+      }
       return next
     })
   }
 
+  const setView = (nextView) => {
+    const normalized = nextView === "family" && user?.familyGroupId ? "family" : "personal"
+    setViewMode(normalized)
+    localStorage.setItem("viewMode", normalized)
+    window.location.reload()
+  }
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, updateUser }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, updateUser, viewMode, setView }}>
       {children}
     </AuthContext.Provider>
   )
@@ -80,4 +110,3 @@ export function useAuth() {
   }
   return context
 }
-

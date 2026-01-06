@@ -7,8 +7,9 @@ const express = require('express');
 const router = express.Router();
 const fridgeItemController = require('../controllers/fridgeItem.controller');
 const auth = require('../middleware/auth.middleware');
+const { attachViewContext } = require('../middleware/view.middleware');
 
-router.use(auth);
+router.use(auth, attachViewContext);
 
 /**
  * @route   GET /api/fridge-items/expiring
@@ -67,4 +68,3 @@ router.put('/:id', fridgeItemController.updateFridgeItem);
 router.delete('/:id', fridgeItemController.deleteFridgeItem);
 
 module.exports = router;
-

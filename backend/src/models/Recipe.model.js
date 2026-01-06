@@ -86,6 +86,11 @@ const recipeSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
+  visibility: {
+    type: String,
+    enum: ['public', 'private'],
+    default: 'public'
+  },
   isApproved: {
     type: Boolean,
     default: false
@@ -110,6 +115,8 @@ const recipeSchema = new mongoose.Schema({
 // Indexes
 recipeSchema.index({ name: 'text' });
 recipeSchema.index({ isApproved: 1 });
+recipeSchema.index({ visibility: 1 });
+recipeSchema.index({ createdBy: 1, visibility: 1 });
 recipeSchema.index({ category: 1 });
 recipeSchema.index({ tags: 1 });
 

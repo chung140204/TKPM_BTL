@@ -82,7 +82,7 @@ exports.markAllAsRead = async (req, res, next) => {
 exports.checkExpiringItems = async (req, res, next) => {
   try {
     const notificationService = require('../services/notification.service');
-    const result = await notificationService.checkExpiringFridgeItems();
+    const result = await notificationService.checkExpiringFridgeItems({ sendEmail: false });
     
     res.json({
       success: result.success,
@@ -93,6 +93,5 @@ exports.checkExpiringItems = async (req, res, next) => {
     next(error);
   }
 };
-
 
 

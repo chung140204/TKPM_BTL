@@ -236,7 +236,6 @@ export function Shopping() {
         const response = await createShoppingList({
           name: newList.name,
           plannedDate: newList.plannedDate,
-          familyGroupId: newList.familyGroupId || null,
           items
         })
 
@@ -714,4 +713,3 @@ export function Shopping() {
     </div>
   )
 }
-

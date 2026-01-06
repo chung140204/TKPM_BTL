@@ -6,6 +6,7 @@ const FoodItem = require('../models/FoodItem.model');
 const Category = require('../models/Category.model');
 const ConsumptionLog = require('../models/ConsumptionLog.model');
 const mongoose = require('mongoose');
+const { buildViewFilter, buildAggregateMatch } = require('../utils/view');
 
 // Helper function để tính date range dựa trên period
 const getDateRange = (period, offset = 0) => {
@@ -53,11 +54,15 @@ exports.getPurchaseStatistics = async (req, res, next) => {
     const period = req.query.period || 'month';
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const { startDate, endDate } = getDateRange(period, offset);
+    const userIds = req.view === 'family' && req.familyGroup
+      ? req.familyGroup.members.map(member => member.userId)
+      : [userId];
+    const viewFilter = buildViewFilter(req);
 
     // Lấy tất cả completed shopping lists trong khoảng thời gian
     // Nếu completedAt = null, sử dụng updatedAt hoặc createdAt
     const shoppingLists = await ShoppingList.find({
-      userId: userId,
+      ...viewFilter,
       status: 'completed',
       $or: [
         { completedAt: { $gte: startDate, $lte: endDate } },
@@ -174,10 +179,11 @@ exports.getWasteStatistics = async (req, res, next) => {
     const period = req.query.period || 'month';
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const { startDate, endDate } = getDateRange(period, offset);
+    const viewFilter = buildViewFilter(req);
 
     // Lấy tất cả expired fridge items trong khoảng thời gian
     const expiredItems = await FridgeItem.find({
-      userId: userId,
+      ...viewFilter,
       status: 'expired',
       createdAt: { $gte: startDate, $lte: endDate }
     })
@@ -300,10 +306,11 @@ exports.getConsumptionStatistics = async (req, res, next) => {
     const period = req.query.period || 'month';
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const { startDate, endDate } = getDateRange(period, offset);
+    const viewFilter = buildViewFilter(req);
 
     // 1. Lấy purchased items từ completed shopping lists
     const shoppingLists = await ShoppingList.find({
-      userId: userId,
+      ...viewFilter,
       status: 'completed',
       completedAt: { $gte: startDate, $lte: endDate }
     })
@@ -311,14 +318,14 @@ exports.getConsumptionStatistics = async (req, res, next) => {
 
     // 2. Lấy used items từ consumption logs (ưu tiên), fallback to used_up nếu chưa có log
     const consumptionLogs = await ConsumptionLog.find({
-      userId: userId,
+      ...viewFilter,
       createdAt: { $gte: startDate, $lte: endDate }
     })
       .populate('foodItemId', 'name');
 
     const usedItems = consumptionLogs.length === 0
       ? await FridgeItem.find({
-          userId: userId,
+          ...viewFilter,
           status: 'used_up',
           updatedAt: { $gte: startDate, $lte: endDate }
         })
@@ -327,7 +334,7 @@ exports.getConsumptionStatistics = async (req, res, next) => {
 
     // 3. Lấy wasted items (status = expired)
     const wastedItems = await FridgeItem.find({
-      userId: userId,
+      ...viewFilter,
       status: 'expired',
       createdAt: { $gte: startDate, $lte: endDate }
     })
@@ -448,10 +455,13 @@ exports.getRecipeStatistics = async (req, res, next) => {
     const period = req.query.period || 'month';
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const { startDate, endDate } = getDateRange(period, offset);
+    const userIds = req.view === 'family' && req.familyGroup
+      ? req.familyGroup.members.map(member => member.userId)
+      : [userId];
 
     // 1. Lấy tất cả notifications về recipe_cooked trong khoảng thời gian
     const cookedNotifications = await Notification.find({
-      userId: userId,
+      userId: { $in: userIds },
       type: 'recipe_cooked',
       createdAt: { $gte: startDate, $lte: endDate }
     });
@@ -544,22 +554,24 @@ exports.getRecipeStatistics = async (req, res, next) => {
 exports.getDashboardOverview = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    const viewFilter = buildViewFilter(req);
+    const aggregateMatch = buildAggregateMatch(req);
 
     // 1. Tổng số thực phẩm trong tủ lạnh (status != used_up)
     const totalFridgeItems = await FridgeItem.countDocuments({
-      userId: userId,
+      ...viewFilter,
       status: { $ne: 'used_up' }
     });
 
     // 2. Số thực phẩm sắp hết hạn (expiring_soon)
     const expiringSoon = await FridgeItem.countDocuments({
-      userId: userId,
+      ...viewFilter,
       status: 'expiring_soon'
     });
 
     // 3. Số danh sách mua sắm (không phân biệt trạng thái)
     const shoppingListCount = await ShoppingList.countDocuments({
-      userId: userId
+      ...viewFilter
     });
 
     // 4. Tính waste reduction (so sánh tháng này vs tháng trước)
@@ -582,7 +594,7 @@ exports.getDashboardOverview = async (req, res, next) => {
     const thisMonthWaste = await FridgeItem.aggregate([
       {
         $match: {
-          userId: new mongoose.Types.ObjectId(userId),
+          ...aggregateMatch,
           status: 'expired',
           createdAt: { $gte: thisMonthStart }
         }
@@ -599,7 +611,7 @@ exports.getDashboardOverview = async (req, res, next) => {
     const lastMonthWaste = await FridgeItem.aggregate([
       {
         $match: {
-          userId: new mongoose.Types.ObjectId(userId),
+          ...aggregateMatch,
           status: 'expired',
           createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
         }
@@ -634,31 +646,31 @@ exports.getDashboardOverview = async (req, res, next) => {
       shoppingListsLastMonth
     ] = await Promise.all([
       FridgeItem.countDocuments({
-        userId: userId,
+        ...viewFilter,
         status: { $ne: 'used_up' },
         createdAt: { $gte: thisMonthStart }
       }),
       FridgeItem.countDocuments({
-        userId: userId,
+        ...viewFilter,
         status: { $ne: 'used_up' },
         createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
       }),
       FridgeItem.countDocuments({
-        userId: userId,
+        ...viewFilter,
         status: 'expiring_soon',
         createdAt: { $gte: thisMonthStart }
       }),
       FridgeItem.countDocuments({
-        userId: userId,
+        ...viewFilter,
         status: 'expiring_soon',
         createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
       }),
       ShoppingList.countDocuments({
-        userId: userId,
+        ...viewFilter,
         createdAt: { $gte: thisMonthStart }
       }),
       ShoppingList.countDocuments({
-        userId: userId,
+        ...viewFilter,
         createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
       })
     ]);
@@ -683,7 +695,7 @@ exports.getDashboardOverview = async (req, res, next) => {
     const wasteDataByMonth = await FridgeItem.aggregate([
       {
         $match: {
-          userId: new mongoose.Types.ObjectId(userId),
+          ...aggregateMatch,
           status: 'expired',
           createdAt: { $gte: sixMonthsAgo }
         }
@@ -720,7 +732,7 @@ exports.getDashboardOverview = async (req, res, next) => {
     const categoryDistribution = await FridgeItem.aggregate([
       {
         $match: {
-          userId: new mongoose.Types.ObjectId(userId),
+          ...aggregateMatch,
           status: { $ne: 'used_up' }
         }
       },
@@ -808,6 +820,10 @@ exports.getRecentActivities = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 5; // Default 5 per page
     const skip = (page - 1) * limit;
+    const viewFilter = buildViewFilter(req);
+    const userIds = req.view === 'family' && req.familyGroup
+      ? req.familyGroup.members.map(member => member.userId)
+      : [userId];
 
     const activities = [];
 
@@ -816,7 +832,7 @@ exports.getRecentActivities = async (req, res, next) => {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
     const recentFridgeItems = await FridgeItem.find({
-      userId: userId,
+      ...viewFilter,
       createdAt: { $gte: sevenDaysAgo }
     })
       .populate('foodItemId', 'name')
@@ -836,7 +852,7 @@ exports.getRecentActivities = async (req, res, next) => {
 
     // 2. Lấy ShoppingLists mới được tạo hoặc completed
     const recentShoppingLists = await ShoppingList.find({
-      userId: userId,
+      ...viewFilter,
       $or: [
         { createdAt: { $gte: sevenDaysAgo } },
         { completedAt: { $gte: sevenDaysAgo } }
@@ -865,7 +881,7 @@ exports.getRecentActivities = async (req, res, next) => {
 
     // 3. Lấy Notifications về recipe_cooked và các loại khác
     const recentNotifications = await Notification.find({
-      userId: userId,
+      userId: { $in: userIds },
       type: { $in: ['recipe_cooked', 'shopping_update', 'expiry_reminder'] },
       createdAt: { $gte: sevenDaysAgo }
     })

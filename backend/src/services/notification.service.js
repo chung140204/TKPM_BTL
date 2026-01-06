@@ -11,12 +11,121 @@ const Notification = require('../models/Notification.model');
 const User = require('../models/User.model');
 const { sendExpiryEmail } = require('./email.service');
 
+const DEFAULT_ACTION_LABEL = 'Nhấn vào đây để xem chi tiết';
+const DEFAULT_CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+
+const getFamilyGroupContext = async (familyGroupId) => {
+  if (!familyGroupId) return null;
+  const familyGroup = await FamilyGroup.findById(familyGroupId)
+    .populate('members.userId', 'email fullName');
+  if (!familyGroup) return null;
+  const memberIds = familyGroup.members.map(member => member.userId._id);
+  return {
+    familyGroupId: familyGroup._id,
+    familyGroupName: familyGroup.name,
+    memberIds
+  };
+};
+
+const createNotificationForUsers = async (userIds, payload) => {
+  const notifications = [];
+  for (const userId of userIds) {
+    notifications.push({
+      userId,
+      ...payload
+    });
+  }
+  if (notifications.length === 0) return [];
+  return Notification.insertMany(notifications);
+};
+
+exports.getFamilyGroupContext = getFamilyGroupContext;
+exports.createNotificationForUsers = createNotificationForUsers;
+exports.DEFAULT_ACTION_LABEL = DEFAULT_ACTION_LABEL;
+exports.DEFAULT_CLIENT_URL = DEFAULT_CLIENT_URL;
+
+exports.sendNotificationEmail = async (notification, options = {}) => {
+  try {
+    const { userId, user, extraText, extraHtml } = options;
+    let targetUser = user;
+    if (!targetUser || !targetUser.email) {
+      const lookupId = userId || notification.userId;
+      targetUser = await User.findById(lookupId).select('email fullName');
+    }
+
+    if (!targetUser || !targetUser.email) {
+      return;
+    }
+
+    const greetingName = targetUser.fullName || targetUser.email;
+    const scopeLabel = notification.scope === 'family'
+      ? (notification.familyGroupName ? `Gia đình ${notification.familyGroupName}` : 'Gia đình')
+      : 'Cá nhân';
+    const actionLabel = notification.actionLabel || DEFAULT_ACTION_LABEL;
+    const actionUrl = notification.actionUrl
+      ? (notification.actionUrl.startsWith('http')
+        ? notification.actionUrl
+        : `${DEFAULT_CLIENT_URL}${notification.actionUrl}`)
+      : null;
+    const actorLine = notification.actorName ? `Người thực hiện: ${notification.actorName}` : null;
+
+    const textParts = [
+      `Chào ${greetingName},`,
+      '',
+      `[${scopeLabel}] ${notification.title}`,
+      notification.message
+    ];
+
+    if (actorLine) {
+      textParts.push(actorLine);
+    }
+
+    if (extraText) {
+      textParts.push(extraText);
+    }
+
+    if (actionUrl) {
+      textParts.push(`${actionLabel}: ${actionUrl}`);
+    }
+
+    const text = textParts.join('\n');
+
+    const htmlParts = [
+      `<p>Chào ${greetingName},</p>`,
+      `<p><strong>[${scopeLabel}] ${notification.title}</strong></p>`,
+      `<p>${notification.message}</p>`
+    ];
+
+    if (actorLine) {
+      htmlParts.push(`<p>${actorLine}</p>`);
+    }
+
+    if (extraHtml) {
+      htmlParts.push(`<p>${extraHtml}</p>`);
+    }
+
+    if (actionUrl) {
+      htmlParts.push(`<p><a href="${actionUrl}">${actionLabel}</a></p>`);
+    }
+
+    await sendExpiryEmail({
+      to: targetUser.email,
+      subject: notification.title,
+      text,
+      html: htmlParts.join('')
+    });
+  } catch (error) {
+    console.error('[Email] Lỗi khi gửi email thông báo:', error);
+  }
+};
+
 /**
  * @desc    Kiểm tra và tạo thông báo cho thực phẩm sắp hết hạn
  * @returns {Promise<Object>} Kết quả: { success, created, errors }
  */
-exports.checkExpiringFridgeItems = async () => {
+exports.checkExpiringFridgeItems = async (options = {}) => {
   try {
+    const { sendEmail = true } = options;
     // Use start of day for proper timezone handling
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
@@ -86,6 +195,59 @@ exports.checkExpiringFridgeItems = async () => {
     let createdCount = 0;
     const errors = [];
 
+    const familyContextCache = new Map();
+    const resolveFamilyContext = async (familyGroupId) => {
+      if (!familyGroupId) return null;
+      const key = familyGroupId.toString();
+      if (familyContextCache.has(key)) {
+        return familyContextCache.get(key);
+      }
+      const context = await getFamilyGroupContext(familyGroupId);
+      familyContextCache.set(key, context);
+      return context;
+    };
+
+    const createScopedNotifications = async ({ item, type, title, message }) => {
+      const familyContext = await resolveFamilyContext(item.familyGroupId);
+      const recipientIds = familyContext ? familyContext.memberIds : [item.userId._id || item.userId];
+      const scope = familyContext ? 'family' : 'personal';
+      const familyGroupName = familyContext?.familyGroupName || null;
+
+      for (const recipientId of recipientIds) {
+        const existingNotification = await Notification.findOne({
+          userId: recipientId,
+          type,
+          relatedId: item._id,
+          relatedType: 'FridgeItem'
+        });
+
+        if (existingNotification) {
+          continue;
+        }
+
+        const notification = await Notification.create({
+          userId: recipientId,
+          type,
+          title,
+          message,
+          relatedId: item._id,
+          relatedType: 'FridgeItem',
+          scope,
+          familyGroupId: familyContext?.familyGroupId || null,
+          familyGroupName,
+          actionUrl: '/fridge',
+          actionLabel: DEFAULT_ACTION_LABEL,
+          isRead: false
+        });
+
+        createdCount++;
+
+        if (sendEmail) {
+          await exports.sendNotificationEmail(notification, { userId: recipientId });
+        }
+      }
+    };
+
     // 4. Create notifications for expiring items (no duplicates)
     for (const item of allExpiringItems) {
       if (!item.foodItemId || !item.userId) {
@@ -106,54 +268,20 @@ exports.checkExpiringFridgeItems = async () => {
       }
 
       try {
-        // Check if notification already exists for this item while in expiring_soon status
-        const existingNotification = await Notification.findOne({
-          userId: userId,
-          type: 'expiring_soon',
-          relatedId: item._id,
-          relatedType: 'FridgeItem'
-        });
-
-        if (existingNotification) {
-          continue; // Already has notification, skip
-        }
-
-        // Create notification
-        const foodItemName = item.foodItemId.name || 'Thực phẩm';
-        const daysText = daysLeft === 0 
-          ? 'hôm nay' 
-          : daysLeft === 1 
-            ? 'còn 1 ngày nữa' 
+        const daysText = daysLeft === 0
+          ? 'hôm nay'
+          : daysLeft === 1
+            ? 'còn 1 ngày nữa'
             : `còn ${daysLeft} ngày nữa`;
 
-        const notification = await Notification.create({
-          userId: userId,
+        await createScopedNotifications({
+          item,
           type: 'expiring_soon',
           title: 'Thực phẩm sắp hết hạn',
-          message: `${foodItemName} – ${daysText} sẽ hết hạn`,
-          relatedId: item._id,
-          relatedType: 'FridgeItem',
-          isRead: false
+          message: `${foodItemName} – ${daysText} sẽ hết hạn`
         });
 
         console.log(`[Notification Service] ✅ Đã tạo notification cho ${foodItemName} (${daysLeft} ngày)`);
-        createdCount++;
-
-        // Gửi email thông báo sắp hết hạn (nếu cấu hình email)
-        try {
-          const userEmail = item.userId?.email;
-          const userFullName = item.userId?.fullName;
-          if (userEmail) {
-            await sendExpiryEmail({
-              to: userEmail,
-              subject: notification.title,
-              text: notification.message,
-              html: `<p>Chào ${userFullName || ''},</p><p>${notification.message}</p><p>Vui lòng kiểm tra tủ lạnh và sử dụng thực phẩm này sớm để tránh lãng phí.</p>`
-            });
-          }
-        } catch (emailError) {
-          console.error('[Email] Lỗi khi gửi email sắp hết hạn:', emailError);
-        }
       } catch (error) {
         errors.push({
           itemId: item._id.toString(),
@@ -169,52 +297,187 @@ exports.checkExpiringFridgeItems = async () => {
       const userId = item.userId._id;
 
       try {
-        // Check if notification already exists
-        const existingNotification = await Notification.findOne({
-          userId: userId,
-          type: 'expired',
-          relatedId: item._id,
-          relatedType: 'FridgeItem'
-        });
-
-        if (existingNotification) {
-          continue; // Already has notification
-        }
-
-        // Create expired notification
         const foodItemName = item.foodItemId.name || 'Thực phẩm';
-        const notification = await Notification.create({
-          userId: userId,
+        await createScopedNotifications({
+          item,
           type: 'expired',
           title: 'Thực phẩm đã hết hạn',
-          message: `Thực phẩm "${foodItemName}" đã hết hạn. Vui lòng xử lý.`,
-          relatedId: item._id,
-          relatedType: 'FridgeItem',
-          isRead: false
+          message: `Thực phẩm "${foodItemName}" đã hết hạn. Vui lòng xử lý.`
         });
-
-        createdCount++;
-
-        // Gửi email thông báo hết hạn (nếu cấu hình email)
-        try {
-          const userEmail = item.userId?.email;
-          const userFullName = item.userId?.fullName;
-          if (userEmail) {
-            await sendExpiryEmail({
-              to: userEmail,
-              subject: notification.title,
-              text: notification.message,
-              html: `<p>Chào ${userFullName || ''},</p><p>${notification.message}</p>`
-            });
-          }
-        } catch (emailError) {
-          console.error('[Email] Lỗi khi gửi email hết hạn:', emailError);
-        }
       } catch (error) {
         errors.push({
           itemId: item._id.toString(),
           error: error.message
         });
+      }
+    }
+
+    if (sendEmail) {
+      // 6. Gửi email nhac hang ngay luc 08:00
+      const dailyExpiringItems = await FridgeItem.find({
+        status: 'expiring_soon',
+        quantity: { $gt: 0 }
+      })
+        .populate('foodItemId', 'name')
+        .populate('userId', 'email fullName');
+
+      const dailyExpiredItems = await FridgeItem.find({
+        status: 'expired',
+        quantity: { $gt: 0 }
+      })
+        .populate('foodItemId', 'name')
+        .populate('userId', 'email fullName');
+
+      const userItemMap = new Map();
+      const familyEmailCache = new Map();
+
+      const getFamilyEmailContext = async (familyGroupId) => {
+        if (!familyGroupId) return null;
+        const key = familyGroupId.toString();
+        if (familyEmailCache.has(key)) {
+          return familyEmailCache.get(key);
+        }
+        const familyGroup = await FamilyGroup.findById(familyGroupId)
+          .populate('members.userId', 'email fullName');
+        if (!familyGroup) {
+          familyEmailCache.set(key, null);
+          return null;
+        }
+        const context = {
+          name: familyGroup.name,
+          members: familyGroup.members.map(member => ({
+            id: member.userId._id,
+            email: member.userId.email,
+            fullName: member.userId.fullName
+          }))
+        };
+        familyEmailCache.set(key, context);
+        return context;
+      };
+
+      const addItemForUser = (userId, item, groupKey, familyGroupName) => {
+        if (!userId) return;
+        const userKey = userId.toString();
+        if (!userItemMap.has(userKey)) {
+          userItemMap.set(userKey, {
+            expiring: [],
+            expired: [],
+            expiringSet: new Set(),
+            expiredSet: new Set()
+          });
+        }
+
+        const entry = userItemMap.get(userKey);
+        const itemKey = item._id.toString();
+        const setKey = groupKey === 'expiring' ? 'expiringSet' : 'expiredSet';
+        if (entry[setKey].has(itemKey)) {
+          return;
+        }
+
+        entry[setKey].add(itemKey);
+        entry[groupKey].push({ item, familyGroupName });
+      };
+
+      for (const item of dailyExpiringItems) {
+        if (item.familyGroupId) {
+          const familyContext = await getFamilyEmailContext(item.familyGroupId);
+          if (familyContext) {
+            familyContext.members.forEach(member => addItemForUser(member.id, item, 'expiring', familyContext.name));
+          }
+        } else {
+          addItemForUser(item.userId?._id || item.userId, item, 'expiring', null);
+        }
+      }
+
+      for (const item of dailyExpiredItems) {
+        if (item.familyGroupId) {
+          const familyContext = await getFamilyEmailContext(item.familyGroupId);
+          if (familyContext) {
+            familyContext.members.forEach(member => addItemForUser(member.id, item, 'expired', familyContext.name));
+          }
+        } else {
+          addItemForUser(item.userId?._id || item.userId, item, 'expired', null);
+        }
+      }
+
+      const recipientIds = Array.from(userItemMap.keys());
+      const users = await User.find({ _id: { $in: recipientIds } }).select('email fullName');
+      const userMap = new Map(users.map(user => [user._id.toString(), user]));
+
+      for (const [userId, entry] of userItemMap.entries()) {
+        const user = userMap.get(userId);
+        if (!user || !user.email) {
+          continue;
+        }
+
+        const { expiring, expired } = entry;
+        if (expiring.length === 0 && expired.length === 0) {
+          continue;
+        }
+
+        const todayText = new Date().toLocaleDateString('vi-VN');
+        const greetingName = user.fullName || user.email;
+        const subject = 'Thong bao thuc pham hang ngay';
+
+        const expiringLines = expiring.map(({ item, familyGroupName }) => {
+          const foodName = item.foodItemId?.name || 'Thuc pham';
+          const expiryDate = new Date(item.expiryDate).toLocaleDateString('vi-VN');
+          const daysLeft = typeof item.getDaysLeft === 'function' ? item.getDaysLeft() : null;
+          const daysText = Number.isFinite(daysLeft) ? `con ${daysLeft} ngay` : 'sap het han';
+          const groupLabel = familyGroupName ? ` (Nhom: ${familyGroupName})` : '';
+          return `- ${foodName} (HSD: ${expiryDate}, ${daysText})${groupLabel}`;
+        });
+
+        const expiredLines = expired.map(({ item, familyGroupName }) => {
+          const foodName = item.foodItemId?.name || 'Thuc pham';
+          const expiryDate = new Date(item.expiryDate).toLocaleDateString('vi-VN');
+          const groupLabel = familyGroupName ? ` (Nhom: ${familyGroupName})` : '';
+          return `- ${foodName} (HSD: ${expiryDate})${groupLabel}`;
+        });
+
+        const textParts = [
+          `Chao ${greetingName},`,
+          '',
+          `Thong bao thuc pham ngay ${todayText}:`
+        ];
+
+        if (expiringLines.length > 0) {
+          textParts.push('', 'Thuc pham sap het han (0-3 ngay):', ...expiringLines);
+        }
+
+        if (expiredLines.length > 0) {
+          textParts.push('', 'Thuc pham da het han:', ...expiredLines);
+        }
+
+        textParts.push('', 'Vui long kiem tra tu lanh va xu ly kip thoi.');
+
+        const text = textParts.join('\n');
+
+        const expiringHtml = expiringLines.length
+          ? `<p><strong>Thuc pham sap het han (0-3 ngay):</strong></p><ul>${expiringLines.map(line => `<li>${line.slice(2)}</li>`).join('')}</ul>`
+          : '';
+        const expiredHtml = expiredLines.length
+          ? `<p><strong>Thuc pham da het han:</strong></p><ul>${expiredLines.map(line => `<li>${line.slice(2)}</li>`).join('')}</ul>`
+          : '';
+
+        const html = `
+          <p>Chao ${greetingName},</p>
+          <p>Thong bao thuc pham ngay ${todayText}:</p>
+          ${expiringHtml}
+          ${expiredHtml}
+          <p>Vui long kiem tra tu lanh va xu ly kip thoi.</p>
+        `;
+
+        try {
+          await sendExpiryEmail({
+            to: user.email,
+            subject,
+            text,
+            html
+          });
+        } catch (emailError) {
+          console.error('[Email] Loi khi gui email hang ngay:', emailError);
+        }
       }
     }
 
@@ -273,19 +536,8 @@ exports.notifyNewShoppingList = async (shoppingListId) => {
       };
     }
 
-    // Lấy danh sách member IDs (trừ creator)
-    const creatorId = shoppingList.userId._id.toString();
-    const memberIds = familyGroup.members
-      .filter(member => member.userId._id.toString() !== creatorId)
-      .map(member => member.userId._id);
-
-    if (memberIds.length === 0) {
-      return {
-        success: true,
-        created: 0,
-        message: 'Không có thành viên khác trong family group'
-      };
-    }
+    // Lấy danh sách member IDs (bao gồm cả creator)
+    const memberIds = familyGroup.members.map(member => member.userId._id);
 
     // Tạo notification cho mỗi member
     let createdCount = 0;
@@ -305,17 +557,26 @@ exports.notifyNewShoppingList = async (shoppingListId) => {
           continue; // Đã có notification gần đây
         }
 
-        await Notification.create({
+        const notification = await Notification.create({
           userId: memberId,
           type: 'shopping_update',
           title: 'Danh sách mua sắm mới',
           message: `${shoppingList.userId.fullName || shoppingList.userId.email} đã tạo danh sách mua sắm "${shoppingList.name}"`,
           relatedId: shoppingListId,
           relatedType: 'ShoppingList',
+          scope: 'family',
+          familyGroupId: familyGroup._id,
+          familyGroupName: familyGroup.name,
+          actorId: shoppingList.userId._id,
+          actorName: shoppingList.userId.fullName || shoppingList.userId.email,
+          actionUrl: '/shopping',
+          actionLabel: DEFAULT_ACTION_LABEL,
           isRead: false
         });
 
         createdCount++;
+
+        await exports.sendNotificationEmail(notification, { userId: memberId });
       } catch (error) {
         errors.push({
           userId: memberId,
@@ -395,6 +656,12 @@ exports.notifyUpcomingMealPlan = async (mealPlanId) => {
     let createdCount = 0;
     const errors = [];
 
+    const familyGroupContext = mealPlan.familyGroupId
+      ? await getFamilyGroupContext(mealPlan.familyGroupId)
+      : null;
+    const scope = familyGroupContext ? 'family' : 'personal';
+    const familyGroupName = familyGroupContext?.familyGroupName || null;
+
     for (const userId of userIds) {
       try {
         // Kiểm tra xem đã có notification chưa
@@ -409,17 +676,24 @@ exports.notifyUpcomingMealPlan = async (mealPlanId) => {
           continue; // Đã có notification gần đây
         }
 
-        await Notification.create({
+        const notification = await Notification.create({
           userId: userId,
           type: 'meal_reminder',
           title: 'Kế hoạch bữa ăn sắp bắt đầu',
           message: `Kế hoạch bữa ăn "${mealPlan.name}" sẽ bắt đầu vào ngày mai`,
           relatedId: mealPlanId,
           relatedType: 'MealPlan',
+          scope,
+          familyGroupId: familyGroupContext?.familyGroupId || null,
+          familyGroupName,
+          actionUrl: '/meal-planner',
+          actionLabel: DEFAULT_ACTION_LABEL,
           isRead: false
         });
 
         createdCount++;
+
+        await exports.sendNotificationEmail(notification, { userId });
       } catch (error) {
         errors.push({
           userId: userId,
@@ -490,6 +764,3 @@ exports.checkUpcomingMealPlans = async () => {
     };
   }
 };
-
-
-

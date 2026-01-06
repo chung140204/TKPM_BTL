@@ -7,24 +7,35 @@ import {
   ShoppingCart, 
   BarChart3,
   Calendar,
-  LogOut
+  LogOut,
+  Shield,
+  Users
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
+import { ROLES } from "@/utils/roles"
 
-const navItems = [
+const userNavItems = [
   { path: "/", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/fridge", icon: Refrigerator, label: "Tủ lạnh" },
+  { path: "/family-groups", icon: Users, label: "Nhóm gia đình" },
   { path: "/recipes", icon: ChefHat, label: "Gợi ý món ăn" },
-  { path: "/meal-planner", icon: Calendar, label: "Kế hoạch bữa ăn" },
+  { path: "/meal-planner", icon: Calendar, label: "Kế hoạch bữa ăn", roles: [ROLES.HOMEMAKER] },
   { path: "/shopping", icon: ShoppingCart, label: "Danh sách mua sắm" },
   { path: "/statistics", icon: BarChart3, label: "Thống kê" },
 ]
 
+const adminNavItems = [
+  { path: "/admin/stats", icon: BarChart3, label: "Thống kê" },
+  { path: "/admin/users", icon: Shield, label: "Quản trị người dùng" },
+  { path: "/admin/recipes", icon: ChefHat, label: "Quản lý thực đơn" },
+]
+
 export function Sidebar() {
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const navItems = user?.role === ROLES.ADMIN ? adminNavItems : userNavItems
 
   const handleLogout = () => {
     setShowLogoutConfirm(true)
@@ -41,7 +52,10 @@ export function Sidebar() {
         <h1 className="text-xl font-bold text-primary">Smart Grocery</h1>
       </div>
       <nav className="flex-1 space-y-1 p-4">
-        {navItems.map((item) => {
+        {navItems.filter((item) => {
+          if (!item.roles) return true
+          return item.roles.includes(user?.role)
+        }).map((item) => {
           const Icon = item.icon
           return (
             <NavLink
@@ -84,4 +98,3 @@ export function Sidebar() {
     </div>
   )
 }
-

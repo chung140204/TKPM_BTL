@@ -1,6 +1,7 @@
 const MealPlan = require('../models/MealPlan.model');
 const ShoppingList = require('../models/ShoppingList.model');
 const FridgeItem = require('../models/FridgeItem.model');
+const { buildViewFilter, resolveFamilyGroupId } = require('../utils/view');
 // Require models để populate
 require('../models/Recipe.model');
 require('../models/FoodItem.model');
@@ -8,7 +9,8 @@ require('../models/Unit.model');
 
 exports.getMealPlans = async (req, res, next) => {
   try {
-    const mealPlans = await MealPlan.find({ userId: req.user.id })
+    const viewFilter = buildViewFilter(req);
+    const mealPlans = await MealPlan.find(viewFilter)
       .populate('meals.recipeId', 'name image servings')
       .sort({ startDate: -1 });
 
@@ -24,7 +26,11 @@ exports.getMealPlans = async (req, res, next) => {
 
 exports.getMealPlanById = async (req, res, next) => {
   try {
-    const mealPlan = await MealPlan.findById(req.params.id)
+    const viewFilter = buildViewFilter(req);
+    const mealPlan = await MealPlan.findOne({
+      _id: req.params.id,
+      ...viewFilter
+    })
       .populate('meals.recipeId');
 
     if (!mealPlan) {
@@ -47,7 +53,8 @@ exports.createMealPlan = async (req, res, next) => {
   try {
     const mealPlan = await MealPlan.create({
       ...req.body,
-      userId: req.user.id
+      userId: req.user.id,
+      familyGroupId: resolveFamilyGroupId(req)
     });
 
     await mealPlan.populate('meals.recipeId');
@@ -65,7 +72,11 @@ exports.createMealPlan = async (req, res, next) => {
 exports.updateMealPlan = async (req, res, next) => {
   try {
     // Tìm meal plan hiện tại để lấy giá trị cũ
-    const existingMealPlan = await MealPlan.findById(req.params.id);
+    const viewFilter = buildViewFilter(req);
+    const existingMealPlan = await MealPlan.findOne({
+      _id: req.params.id,
+      ...viewFilter
+    });
     
     if (!existingMealPlan) {
       return res.status(404).json({
@@ -86,10 +97,14 @@ exports.updateMealPlan = async (req, res, next) => {
       });
     }
 
+    const updates = { ...req.body };
+    delete updates.userId;
+    delete updates.familyGroupId;
+
     // Update meal plan
-    const mealPlan = await MealPlan.findByIdAndUpdate(
-      req.params.id,
-      req.body,
+    const mealPlan = await MealPlan.findOneAndUpdate(
+      { _id: req.params.id, ...viewFilter },
+      updates,
       { new: true, runValidators: true }
     ).populate('meals.recipeId');
 
@@ -105,7 +120,11 @@ exports.updateMealPlan = async (req, res, next) => {
 
 exports.deleteMealPlan = async (req, res, next) => {
   try {
-    const mealPlan = await MealPlan.findById(req.params.id);
+    const viewFilter = buildViewFilter(req);
+    const mealPlan = await MealPlan.findOne({
+      _id: req.params.id,
+      ...viewFilter
+    });
 
     if (!mealPlan) {
       return res.status(404).json({
@@ -134,11 +153,12 @@ exports.generateShoppingListFromMealPlan = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const mealPlanId = req.params.id;
+    const viewFilter = buildViewFilter(req);
 
     // 1. Tìm MealPlan và populate recipes với ingredients
     const mealPlan = await MealPlan.findOne({
       _id: mealPlanId,
-      userId: userId
+      ...viewFilter
     })
       .populate({
         path: 'meals.recipeId',
@@ -210,7 +230,7 @@ exports.generateShoppingListFromMealPlan = async (req, res, next) => {
 
     // 3. Lấy tất cả FridgeItems của user (chỉ available và expiring_soon)
     const fridgeItems = await FridgeItem.find({
-      userId: userId,
+      ...viewFilter,
       status: { $in: ['available', 'expiring_soon'] }
     })
       .populate('foodItemId', 'name')
