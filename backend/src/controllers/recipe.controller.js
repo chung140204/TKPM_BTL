@@ -436,6 +436,7 @@ exports.suggestRecipes = async (req, res, next) => {
         cookTime: recipe.cookTime,
         difficulty: recipe.difficulty,
         category: recipe.category,
+        instructions: recipe.instructions || [], // Thêm instructions vào response
         availableIngredients,
         missingIngredients,
         matchPercentage,
