@@ -230,11 +230,13 @@ exports.getWasteStatistics = async (req, res, next) => {
         const existing = dateMap.get(dateKey);
         existing.wastedItems += 1;
         existing.wastedAmount += wastedAmount;
+        existing.totalQuantity += item.quantity;
       } else {
         dateMap.set(dateKey, {
           date: dateKey,
           wastedItems: 1,
-          wastedAmount: wastedAmount
+          wastedAmount: wastedAmount,
+          totalQuantity: item.quantity
         });
       }
     });
@@ -253,12 +255,14 @@ exports.getWasteStatistics = async (req, res, next) => {
     // Calculate totals
     const totalWastedItems = expiredItems.length;
     const totalWastedAmount = topWastedItems.reduce((sum, item) => sum + item.totalAmount, 0);
+    const totalWastedQuantity = expiredItems.reduce((sum, item) => sum + item.quantity, 0);
 
     res.json({
       success: true,
       data: {
         totalWastedItems: totalWastedItems,
         totalWastedAmount: totalWastedAmount,
+        totalWastedQuantity: totalWastedQuantity,
         byCategory: byCategory,
         topWastedItems: topWastedItems,
         trend: trend

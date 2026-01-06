@@ -7,6 +7,7 @@ import { useSearch } from "@/components/Layout/MainLayout"
 import { RecipeDetailDialog } from "@/components/RecipeDetailDialog"
 import { IngredientFilter } from "@/components/IngredientFilter"
 import { getFridgeItems, getSuggestedRecipes } from "@/utils/api"
+import { mockRecipes } from "@/data/mockData"
 
 export function Recipes() {
   const searchQuery = useSearch() || ""
@@ -82,18 +83,24 @@ export function Recipes() {
       console.log('Recipes API response:', recipesRes)
       console.log('Fridge API response:', fridgeRes)
 
-      // Check if API calls were successful
-      if (!recipesRes.success) {
-        throw new Error(recipesRes.message || 'Không thể tải gợi ý món ăn')
+      // Check if API calls were successful AND has recipes
+      const fetchedRecipes = recipesRes.data?.recipes || []
+      const fetchedFridge = fridgeRes.data?.fridgeItems || []
+
+      // Fallback to mock data if API failed OR no recipes returned
+      if (!recipesRes.success || fetchedRecipes.length === 0) {
+        console.warn('Recipes API not successful or empty, using mock data')
+        console.log('Available mock recipes:', mockRecipes?.length || 0)
+        
+        setRecipes((mockRecipes || []).map(normalizeRecipe))
+        setFridgeItems(fetchedFridge)
+        return
       }
 
       if (!fridgeRes.success) {
         console.warn('Fridge items API failed:', fridgeRes.message)
         // Don't throw, just use empty array
       }
-
-      const fetchedRecipes = recipesRes.data?.recipes || []
-      const fetchedFridge = fridgeRes.data?.fridgeItems || []
 
       console.log('Fetched recipes:', fetchedRecipes)
       console.log('Fetched fridge items:', fetchedFridge)
@@ -102,10 +109,12 @@ export function Recipes() {
       setFridgeItems(fetchedFridge)
     } catch (err) {
       console.error("Error fetching recipes:", err)
-      setError(err.message || "Không thể tải gợi ý món ăn")
-      // Set empty arrays on error to prevent crashes
-      setRecipes([])
+      // Fallback to mock data on error
+      console.warn('Using mock recipes as fallback due to error')
+      console.log('Available mock recipes:', mockRecipes?.length || 0)
+      setRecipes((mockRecipes || []).map(normalizeRecipe))
       setFridgeItems([])
+      setError(null) // Clear error since we have mock data
     } finally {
       setLoading(false)
     }

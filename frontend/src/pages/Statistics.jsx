@@ -123,7 +123,8 @@ export function Statistics() {
         // Calculate summary stats
         const totalPurchased = purchaseData.totalItems || 0
         const totalConsumed = consumptionTrend.reduce((sum, item) => sum + (item.used || 0), 0)
-        const totalWasted = wasteData.totalWastedAmount || wasteData.totalWastedItems || 0
+        // Use totalWastedQuantity (kg) instead of totalWastedAmount (money)
+        const totalWasted = wasteData.totalWastedQuantity || wasteData.totalWastedItems || 0
         const wasteRate = consumptionData.wasteRate || (totalConsumed > 0 ? (totalWasted / totalConsumed) * 100 : 0)
 
         console.log('Calculated stats:', {

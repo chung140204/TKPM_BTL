@@ -79,7 +79,7 @@ export function Sidebar() {
         message="Bạn có chắc chắn muốn đăng xuất?"
         confirmText="Đăng xuất"
         cancelText="Hủy"
-        variant="default"
+        variant="destructive"
       />
     </div>
   )
