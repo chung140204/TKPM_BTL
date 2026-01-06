@@ -92,7 +92,17 @@ export function cookRecipe(recipe) {
       missingIngredients.push(...recipe.missingIngredients)
     }
 
-    // Save updated fridge items
+    // Nếu thiếu nguyên liệu, KHÔNG trừ nguyên liệu và return error
+    if (missingIngredients.length > 0) {
+      return {
+        success: false,
+        message: "Không đủ nguyên liệu để nấu món này. Vui lòng mua thêm nguyên liệu còn thiếu.",
+        missingIngredients,
+        consumedItems: []
+      }
+    }
+
+    // Save updated fridge items (chỉ khi đủ nguyên liệu)
     localStorage.setItem(FRIDGE_STORAGE_KEY, JSON.stringify(updatedItems))
 
     return {

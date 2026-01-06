@@ -13,7 +13,7 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['expiry_reminder', 'shopping_update', 'meal_reminder', 'recipe_cooked', 'system'],
+    enum: ['expiry_reminder', 'expiring_soon', 'expired', 'shopping_update', 'meal_reminder', 'recipe_cooked', 'system'],
     required: true
   },
   title: {
@@ -46,6 +46,7 @@ const notificationSchema = new mongoose.Schema({
 notificationSchema.index({ userId: 1 });
 notificationSchema.index({ isRead: 1 });
 notificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
+notificationSchema.index({ userId: 1, type: 1, relatedId: 1, relatedType: 1 }); // For duplicate prevention
 
 module.exports = mongoose.model('Notification', notificationSchema);
 

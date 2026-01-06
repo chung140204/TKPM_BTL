@@ -9,6 +9,7 @@ router.get('/', notificationController.getNotifications);
 router.get('/unread', notificationController.getUnreadNotifications);
 router.put('/:id/read', notificationController.markAsRead);
 router.put('/read-all', notificationController.markAllAsRead);
+router.post('/check-expiring', notificationController.checkExpiringItems); // Manual trigger for testing
 
 module.exports = router;
 

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/Button"
 import { Clock, Users, ChefHat, CheckCircle2, XCircle, Utensils } from "lucide-react"
 import { cookRecipe } from "@/utils/cookRecipe"
 import { cookRecipeApi, createShoppingList } from "@/utils/api"
+import { showToast } from "@/components/ui/Toast"
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 
 export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
   if (!recipe) return null
@@ -14,6 +16,7 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
   const [missingFromCook, setMissingFromCook] = useState(null)
   const [isCreatingList, setIsCreatingList] = useState(false)
   const [createListError, setCreateListError] = useState("")
+  const [showCookConfirm, setShowCookConfirm] = useState(false)
 
   const getRecipeId = (value) => value?.recipeId || value?._id || value?.id
   const isValidObjectId = (value) => typeof value === "string" && /^[a-f0-9]{24}$/i.test(value)
@@ -65,17 +68,14 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
   const availableIngredients = resolveAvailableIngredients()
   const missingIngredients = resolveMissingIngredients()
   const canCreateShoppingList = missingIngredients.some(ing => ing.foodItemId && ing.unitId)
+  const canCook = missingIngredients.length === 0 // Chỉ cho phép nấu khi không thiếu nguyên liệu
 
-  const handleCookClick = async () => {
-    // Show confirmation dialog
-    const confirmed = window.confirm(
-      "Điều này sẽ trừ nguyên liệu từ tủ lạnh của bạn.\n\nBạn có muốn tiếp tục?"
-    )
+  const handleCookClick = () => {
+    setShowCookConfirm(true)
+  }
 
-    if (!confirmed) {
-      return
-    }
-
+  const confirmCook = async () => {
+    setShowCookConfirm(false)
     setCookError("")
     setMissingFromCook(null)
 
@@ -83,6 +83,13 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
     const canUseApi = isValidObjectId(recipeId)
 
     if (!canUseApi) {
+      // Kiểm tra đủ nguyên liệu trước khi nấu (demo mode)
+      if (missingIngredients.length > 0) {
+        setCookError("Không đủ nguyên liệu để nấu món này. Vui lòng mua thêm nguyên liệu còn thiếu.")
+        setMissingFromCook(missingIngredients)
+        return
+      }
+
       const result = cookRecipe(recipe)
 
       if (result.success) {
@@ -99,19 +106,17 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
           })
         }
 
-        if (result.missingIngredients && result.missingIngredients.length > 0) {
-          message += "\n⚠️ Cảnh báo: Một số nguyên liệu không có trong tủ lạnh. Kết quả có thể không đầy đủ."
+        showToast(message, "success")
+        onClose()
+
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("fridgeItemsUpdated"))
         }
-
-        alert(message)
       } else {
-        alert(result.message || "Có lỗi xảy ra khi cập nhật nguyên liệu")
-      }
-
-      onClose()
-
-      if (result.success && typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("fridgeItemsUpdated"))
+        setCookError(result.message || "Có lỗi xảy ra khi cập nhật nguyên liệu")
+        if (result.missingIngredients && result.missingIngredients.length > 0) {
+          setMissingFromCook(result.missingIngredients)
+        }
       }
 
       return
@@ -120,7 +125,7 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
     try {
       setIsCooking(true)
       const result = await cookRecipeApi(recipeId)
-      alert(result.message || `Đã nấu món "${recipe.name}" thành công`)
+      showToast(result.message || `Đã nấu món "${recipe.name}" thành công`, "success")
 
       if (onCook) {
         onCook(recipe)
@@ -133,8 +138,9 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
       }
     } catch (error) {
       if (error?.status === 400 && error?.data?.data?.missingIngredients?.length) {
-        setCookError(error.message || "Không đủ nguyên liệu")
+        setCookError("Không đủ nguyên liệu để nấu món này. Vui lòng mua thêm nguyên liệu còn thiếu.")
         setMissingFromCook(error.data.data.missingIngredients)
+        // Không đóng dialog, để user thấy nguyên liệu còn thiếu
         return
       }
 
@@ -181,7 +187,7 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
         throw new Error(response?.message || "Không thể tạo danh sách mua")
       }
 
-      alert("Đã tạo danh sách mua từ nguyên liệu còn thiếu.")
+      showToast("Đã tạo danh sách mua từ nguyên liệu còn thiếu.", "success")
 
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("shoppingListsUpdated"))
@@ -194,6 +200,7 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
   }
 
   return (
+    <>
     <Dialog
       isOpen={isOpen}
       onClose={onClose}
@@ -277,10 +284,15 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
                     <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
                     <span className="text-sm">{ing.name}</span>
                     <span className="text-sm text-muted-foreground ml-auto">
-                      {ing.quantity}
+                      {ing.quantity || ing.quantityMissing || ing.missingQuantity || "Thiếu"}
                     </span>
                   </div>
                 ))}
+              </div>
+              <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+                <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+                  ⚠️ Không thể nấu món này khi thiếu nguyên liệu. Vui lòng mua thêm nguyên liệu còn thiếu trước khi nấu.
+                </p>
               </div>
             </div>
           )}
@@ -345,8 +357,13 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
           <Button variant="outline" onClick={onClose} className="flex-1">
             Đóng
           </Button>
-          <Button className="flex-1" onClick={handleCookClick} disabled={isCooking}>
-            {isCooking ? "Đang nấu..." : "Bắt đầu nấu"}
+          <Button 
+            className="flex-1" 
+            onClick={handleCookClick} 
+            disabled={isCooking || !canCook}
+            title={!canCook ? "Không thể nấu: Thiếu nguyên liệu" : ""}
+          >
+            {isCooking ? "Đang nấu..." : canCook ? "Bắt đầu nấu" : "Không đủ nguyên liệu"}
           </Button>
         </div>
 
@@ -370,6 +387,17 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
         )}
       </div>
     </Dialog>
+    <ConfirmDialog
+      isOpen={showCookConfirm}
+      onClose={() => setShowCookConfirm(false)}
+      onConfirm={confirmCook}
+      title="Xác nhận nấu món"
+      message="Điều này sẽ trừ nguyên liệu từ tủ lạnh của bạn.\n\nBạn có muốn tiếp tục?"
+      confirmText="Tiếp tục"
+      cancelText="Hủy"
+      variant="default"
+    />
+  </>
   )
 }
 

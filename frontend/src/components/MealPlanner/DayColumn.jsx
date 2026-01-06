@@ -1,5 +1,7 @@
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card"
+import { Button } from "@/components/ui/Button"
 import { MealSlot } from "./MealSlot"
+import { Sparkles } from "lucide-react"
 
 const dayNames = {
   monday: "Thứ 2",
@@ -11,12 +13,30 @@ const dayNames = {
   sunday: "Chủ nhật"
 }
 
-export function DayColumn({ day, meals, onAddMeal, onRemoveMeal, autoSuggestedSlots, onViewRecipe }) {
+export function DayColumn({ day, meals, onAddMeal, onRemoveMeal, autoSuggestedSlots, onViewRecipe, onSuggestDay, fridgeItems }) {
+  // Check if all meals for this day are filled
+  const allMealsFilled = meals.breakfast && meals.lunch && meals.dinner
+  const hasEmptyMeals = !meals.breakfast || !meals.lunch || !meals.dinner
+  const canSuggest = hasEmptyMeals && fridgeItems && fridgeItems.length > 0
+
   return (
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">{dayNames[day]}</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">{dayNames[day]}</CardTitle>
+            {canSuggest && onSuggestDay && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onSuggestDay(day)}
+                className="h-7 w-7 p-0"
+                title="Đề xuất bữa ăn cho ngày này"
+              >
+                <Sparkles className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </CardHeader>
       </Card>
       

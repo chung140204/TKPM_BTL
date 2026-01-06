@@ -2,14 +2,17 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
 import { Button } from "@/components/ui/Button"
-import { CheckCircle2, Circle, Plus, Calendar, Users, Clock, ShoppingCart, Package, Pencil } from "lucide-react"
+import { CheckCircle2, Circle, Plus, Calendar, Users, Clock, ShoppingCart, Package, Pencil, Trash2 } from "lucide-react"
 import { useSearch } from "@/components/Layout/MainLayout"
 import { CreateShoppingListDialog } from "@/components/CreateShoppingListDialog"
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
+import { showToast } from "@/components/ui/Toast"
 import { getFoodCategory, categoryOrder, categoryIcons } from "@/utils/foodCategories"
 import {
   completeShoppingList,
   createFoodItem,
   createShoppingList,
+  deleteShoppingList,
   getCategories,
   getFoodItems,
   getShoppingLists,
@@ -112,10 +115,16 @@ export function Shopping() {
   const [error, setError] = useState(null)
   const [editingList, setEditingList] = useState(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, listId: null, listName: "" })
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [completeConfirm, setCompleteConfirm] = useState({ isOpen: false, listId: null })
+  const [isCompleting, setIsCompleting] = useState(false)
 
   // Listen for shopping lists updates (e.g., when generated from meal plan)
   useEffect(() => {
     const handleShoppingListsUpdate = () => {
+      console.log('🔄 Shopping lists updated event received, refreshing immediately...')
+      // Fetch immediately - backend has already processed
       fetchShoppingLists()
     }
 
@@ -238,7 +247,7 @@ export function Shopping() {
         await fetchShoppingLists()
       } catch (err) {
         console.error("Error creating shopping list:", err)
-        alert(err.message || "Có lỗi xảy ra khi tạo danh sách")
+        showToast(err.message || "Có lỗi xảy ra khi tạo danh sách", "error")
       }
     })()
   }
@@ -268,7 +277,7 @@ export function Shopping() {
         setEditingList(null)
       } catch (err) {
         console.error("Error updating shopping list:", err)
-        alert(err.message || "Có lỗi xảy ra khi cập nhật danh sách")
+        showToast(err.message || "Có lỗi xảy ra khi cập nhật danh sách", "error")
       }
     })()
   }
@@ -300,27 +309,30 @@ export function Shopping() {
       )
     } catch (err) {
       console.error("Error updating shopping list item:", err)
-      alert(err.message || "Không thể cập nhật item")
+      showToast(err.message || "Không thể cập nhật item", "error")
     }
   }
 
-  const handleCompleteList = async (listId) => {
+  const handleCompleteList = (listId) => {
     const list = shoppingLists.find(l => l.id === listId)
     if (!list) return
 
     // Check if there are any bought items
     const boughtItems = list.items.filter(item => item.isBought === true)
     if (boughtItems.length === 0) {
-      alert("Vui lòng đánh dấu ít nhất một món hàng đã mua trước khi hoàn thành")
+      showToast("Vui lòng đánh dấu ít nhất một món hàng đã mua trước khi hoàn thành", "warning")
       return
     }
 
-    if (!window.confirm("Bạn có chắc chắn muốn hoàn thành danh sách này?\n\nCác món hàng đã mua sẽ được thêm vào tủ lạnh.")) {
-      return
-    }
+    setCompleteConfirm({ isOpen: true, listId: listId })
+  }
+
+  const confirmComplete = async () => {
+    if (!completeConfirm.listId) return
 
     try {
-      const response = await completeShoppingList(listId)
+      setIsCompleting(true)
+      const response = await completeShoppingList(completeConfirm.listId)
 
       if (!response.success) {
         throw new Error(response.message || "Có lỗi xảy ra khi hoàn thành danh sách")
@@ -335,12 +347,47 @@ export function Shopping() {
       message += `Đã thêm mới: ${createdCount} thực phẩm\n`
       message += `Đã cập nhật: ${updatedCount} thực phẩm`
 
-      alert(message)
+      showToast(message, "success")
 
       window.dispatchEvent(new CustomEvent('fridgeItemsUpdated'))
+      setCompleteConfirm({ isOpen: false, listId: null })
     } catch (err) {
       console.error("Error completing shopping list:", err)
-      alert(err.message || "Có lỗi xảy ra khi hoàn thành danh sách")
+      showToast(err.message || "Có lỗi xảy ra khi hoàn thành danh sách", "error")
+    } finally {
+      setIsCompleting(false)
+    }
+  }
+
+  const handleDeleteList = (listId) => {
+    const list = shoppingLists.find(l => l.id === listId)
+    if (!list) return
+
+    setDeleteConfirm({
+      isOpen: true,
+      listId: listId,
+      listName: list.name
+    })
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm.listId) return
+
+    try {
+      setIsDeleting(true)
+      const response = await deleteShoppingList(deleteConfirm.listId)
+
+      if (!response.success) {
+        throw new Error(response.message || "Có lỗi xảy ra khi xóa danh sách")
+      }
+
+      await fetchShoppingLists()
+      setDeleteConfirm({ isOpen: false, listId: null, listName: "" })
+    } catch (err) {
+      console.error("Error deleting shopping list:", err)
+      showToast(err.message || "Có lỗi xảy ra khi xóa danh sách", "error")
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -423,6 +470,29 @@ export function Shopping() {
         initialList={editingList}
         submitLabel="Lưu thay đổi"
         title="Chỉnh sửa danh sách mua sắm"
+      />
+      <ConfirmDialog
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => setDeleteConfirm({ isOpen: false, listId: null, listName: "" })}
+        onConfirm={confirmDelete}
+        title="Xóa danh sách mua sắm"
+        message={`Bạn có chắc chắn muốn xóa danh sách "${deleteConfirm.listName}"?\n\nHành động này không thể hoàn tác.`}
+        confirmText="Xóa"
+        cancelText="Hủy"
+        variant="destructive"
+        loading={isDeleting}
+      />
+      <ConfirmDialog
+        isOpen={completeConfirm.isOpen}
+        onClose={() => setCompleteConfirm({ isOpen: false, listId: null })}
+        onConfirm={confirmComplete}
+        title="Hoàn thành danh sách mua sắm"
+        message="Bạn có chắc chắn muốn hoàn thành danh sách này?
+        Các thực phẩm đã mua sẽ được tự động thêm vào tủ lạnh."
+        confirmText="Hoàn thành"
+        cancelText="Hủy"
+        variant="default"
+        loading={isCompleting}
       />
 
       {loading && (
@@ -507,6 +577,16 @@ export function Shopping() {
                         <Pencil className="h-4 w-4" />
                       </Button>
                     )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteList(list.id)}
+                      title="Xóa danh sách"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                     <Badge 
                       variant={list.status === "completed" ? "success" : "default"}
                       className={list.status === "active" ? "bg-green-500 hover:bg-green-600 text-white" : ""}

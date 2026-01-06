@@ -1,28 +1,114 @@
 import { Moon, Sun, Bell, Search, CheckCheck } from "lucide-react"
-import { useState } from "react"
-import { useLocation } from "react-router-dom"
+import { useState, useEffect } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
 import { Dropdown } from "@/components/ui/Dropdown"
 import { Button } from "@/components/ui/Button"
 import { useAuth } from "@/contexts/AuthContext"
+import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "@/utils/api"
 
 export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
-  const { user } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
   const [notifications, setNotifications] = useState([])
+  const [loading, setLoading] = useState(false)
   const location = useLocation()
+  const navigate = useNavigate()
+
+  // Fetch notifications when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchNotifications()
+      // Refresh notifications every 30 seconds
+      const interval = setInterval(fetchNotifications, 30000)
+      
+      // Listen for refresh events (when items are added/updated)
+      const handleRefresh = () => {
+        fetchNotifications()
+      }
+      window.addEventListener('refreshNotifications', handleRefresh)
+      
+      return () => {
+        clearInterval(interval)
+        window.removeEventListener('refreshNotifications', handleRefresh)
+      }
+    }
+  }, [isAuthenticated])
+
+  const fetchNotifications = async () => {
+    try {
+      setLoading(true)
+      const response = await getNotifications()
+      if (response.success && response.data?.notifications) {
+        setNotifications(response.data.notifications.map(n => ({
+          id: n._id || n.id,
+          title: n.title,
+          message: n.message,
+          type: n.type,
+          relatedId: n.relatedId,
+          relatedType: n.relatedType,
+          isRead: n.isRead,
+          createdAt: n.createdAt,
+          time: formatTime(n.createdAt)
+        })))
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const formatTime = (dateString) => {
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffMs = now - date
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffMins < 1) return 'Vừa xong'
+    if (diffMins < 60) return `${diffMins} phút trước`
+    if (diffHours < 24) return `${diffHours} giờ trước`
+    if (diffDays < 7) return `${diffDays} ngày trước`
+    
+    return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
+  }
 
   const unreadCount = notifications.filter(n => !n.isRead).length
 
-  const handleMarkAllAsRead = () => {
-    setNotifications(prev =>
-      prev.map(n => ({ ...n, isRead: true }))
-    )
+  const handleMarkAllAsRead = async () => {
+    try {
+      await markAllNotificationsAsRead()
+      setNotifications(prev =>
+        prev.map(n => ({ ...n, isRead: true }))
+      )
+    } catch (error) {
+      console.error('Error marking all as read:', error)
+    }
   }
 
-  const handleNotificationClick = (id) => {
-    setNotifications(prev =>
-      prev.map(n => n.id === id ? { ...n, isRead: true } : n)
-    )
+  const handleNotificationClick = async (notification) => {
+    // Mark as read
+    if (!notification.isRead) {
+      try {
+        await markNotificationAsRead(notification.id)
+        setNotifications(prev =>
+          prev.map(n => n.id === notification.id ? { ...n, isRead: true } : n)
+        )
+      } catch (error) {
+        console.error('Error marking notification as read:', error)
+      }
+    }
+
+    // Navigate based on notification type
+    if (notification.type === 'expiring_soon' || notification.type === 'expired') {
+      if (notification.relatedType === 'FridgeItem') {
+        navigate('/fridge')
+        // Close dropdown
+        setIsNotificationOpen(false)
+      }
+    }
   }
 
   // Determine placeholder based on current page
@@ -81,7 +167,11 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
                 )}
               </div>
               <div className="max-h-80 overflow-y-auto">
-                {notifications.length === 0 ? (
+                {loading ? (
+                  <div className="p-8 text-center text-sm text-muted-foreground">
+                    Đang tải...
+                  </div>
+                ) : notifications.length === 0 ? (
                   <div className="p-8 text-center text-sm text-muted-foreground">
                     Không có thông báo
                   </div>
@@ -89,27 +179,29 @@ export function Header({ onThemeToggle, isDark, searchQuery, onSearchChange }) {
                   notifications.map((notification) => (
                     <div
                       key={notification.id}
-                      onClick={() => handleNotificationClick(notification.id)}
+                      onClick={() => handleNotificationClick(notification)}
                       className={`cursor-pointer border-b p-3 transition-colors hover:bg-accent ${
                         !notification.isRead ? "bg-primary/5" : ""
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <div className={`mt-1 h-2 w-2 rounded-full ${
+                        <div className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${
                           !notification.isRead ? "bg-primary" : "bg-transparent"
                         }`} />
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                           <p className={`text-sm font-medium ${
                             !notification.isRead ? "text-foreground" : "text-muted-foreground"
                           }`}>
                             {notification.title}
                           </p>
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-xs text-muted-foreground mt-1 break-words">
                             {notification.message}
                           </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {notification.time}
-                          </p>
+                          {notification.time && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {notification.time}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>

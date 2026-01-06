@@ -321,6 +321,23 @@ exports.suggestRecipes = async (req, res, next) => {
       
       const key = `${item.foodItemId._id.toString()}_${item.unitId._id.toString()}`;
       
+      // Tính daysLeft an toàn
+      let daysLeft = 0;
+      try {
+        if (typeof item.getDaysLeft === 'function') {
+          daysLeft = item.getDaysLeft();
+        } else {
+          // Fallback: tính toán thủ công
+          const now = new Date();
+          const expiryDate = new Date(item.expiryDate);
+          const diffTime = expiryDate - now;
+          daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        }
+      } catch (error) {
+        console.warn('Error calculating daysLeft for item:', item._id, error);
+        daysLeft = 0;
+      }
+      
       // Nếu đã có, cộng quantity
       if (fridgeMap.has(key)) {
         const existing = fridgeMap.get(key);
@@ -329,6 +346,7 @@ exports.suggestRecipes = async (req, res, next) => {
         if (item.expiryDate < existing.expiryDate) {
           existing.expiryDate = item.expiryDate;
           existing.status = item.status;
+          existing.daysLeft = daysLeft;
         }
       } else {
         fridgeMap.set(key, {
@@ -337,7 +355,7 @@ exports.suggestRecipes = async (req, res, next) => {
           quantity: item.quantity,
           expiryDate: item.expiryDate,
           status: item.status,
-          daysLeft: item.getDaysLeft()
+          daysLeft: daysLeft
         });
       }
     });

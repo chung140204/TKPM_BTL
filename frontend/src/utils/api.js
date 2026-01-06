@@ -1,6 +1,6 @@
 // API utility functions for backend communication
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api'
 
 // Get auth token from localStorage
 function getAuthToken() {
@@ -37,6 +37,20 @@ async function apiRequest(endpoint, options = {}) {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       console.error('API Error Response:', errorData)
+      
+      // Handle 401 Unauthorized - Token expired or invalid
+      if (response.status === 401) {
+        // Clear invalid token
+        localStorage.removeItem('authToken')
+        localStorage.removeItem('token')
+        localStorage.removeItem('isAuthenticated')
+        
+        // Redirect to login if not already there
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login'
+        }
+      }
+      
       const error = new Error(errorData.message || `API Error: ${response.status} ${response.statusText}`)
       error.status = response.status
       error.data = errorData
@@ -488,6 +502,51 @@ export async function generateShoppingListFromMealPlan(id) {
     return response
   } catch (error) {
     console.error('Error generating shopping list from meal plan:', error)
+    throw error
+  }
+}
+
+// Notification APIs
+export async function getNotifications() {
+  try {
+    const response = await apiRequest('/notifications')
+    return response
+  } catch (error) {
+    console.error('Error fetching notifications:', error)
+    throw error
+  }
+}
+
+export async function getUnreadNotifications() {
+  try {
+    const response = await apiRequest('/notifications/unread')
+    return response
+  } catch (error) {
+    console.error('Error fetching unread notifications:', error)
+    throw error
+  }
+}
+
+export async function markNotificationAsRead(notificationId) {
+  try {
+    const response = await apiRequest(`/notifications/${notificationId}/read`, {
+      method: 'PUT'
+    })
+    return response
+  } catch (error) {
+    console.error('Error marking notification as read:', error)
+    throw error
+  }
+}
+
+export async function markAllNotificationsAsRead() {
+  try {
+    const response = await apiRequest('/notifications/read-all', {
+      method: 'PUT'
+    })
+    return response
+  } catch (error) {
+    console.error('Error marking all notifications as read:', error)
     throw error
   }
 }

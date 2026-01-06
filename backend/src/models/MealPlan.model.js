@@ -30,6 +30,10 @@ const mealSchema = new mongoose.Schema({
     enum: ['planned', 'cooked', 'skipped'],
     default: 'planned'
   },
+  isAutoSuggested: {
+    type: Boolean,
+    default: false
+  },
   cookedAt: {
     type: Date,
     default: null

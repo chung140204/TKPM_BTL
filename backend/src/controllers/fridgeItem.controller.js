@@ -8,6 +8,8 @@ const FoodItem = require('../models/FoodItem.model');
 const Unit = require('../models/Unit.model');
 const Category = require('../models/Category.model');
 const ConsumptionLog = require('../models/ConsumptionLog.model');
+const Notification = require('../models/Notification.model');
+const notificationService = require('../services/notification.service');
 // Require các models liên quan để Mongoose có thể populate
 require('../models/FoodItem.model');
 require('../models/Unit.model');
@@ -19,6 +21,131 @@ const normalizeDate = (value) => {
   }
   date.setHours(0, 0, 0, 0);
   return date;
+};
+
+/**
+ * Helper function: Check and create notification for a single FridgeItem
+ * @param {FridgeItem} fridgeItem - FridgeItem instance (must be populated with foodItemId)
+ */
+const checkAndCreateNotificationForItem = async (fridgeItem) => {
+  try {
+    if (!fridgeItem || !fridgeItem.foodItemId || fridgeItem.quantity <= 0) {
+      console.log('[Notification] Skipping: invalid item or quantity <= 0');
+      return;
+    }
+
+    // Ensure foodItemId is populated
+    if (!fridgeItem.foodItemId.name) {
+      await fridgeItem.populate('foodItemId', 'name');
+    }
+
+    // Ensure status is up to date using updateStatus method
+    fridgeItem.updateStatus();
+    
+    // Calculate daysLeft - use method if available, otherwise calculate manually
+    let daysLeft;
+    if (typeof fridgeItem.getDaysLeft === 'function') {
+      daysLeft = fridgeItem.getDaysLeft();
+    } else {
+      // Manual calculation fallback
+      const now = new Date();
+      const expiryDate = new Date(fridgeItem.expiryDate);
+      const diffTime = expiryDate - now;
+      daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    }
+    
+    // Ensure userId is ObjectId (not populated object)
+    const userId = fridgeItem.userId._id || fridgeItem.userId;
+    const foodItemName = fridgeItem.foodItemId.name || 'Thực phẩm';
+    const status = fridgeItem.status;
+
+    // Ensure status is explicitly set based on daysLeft (as per requirements)
+    // If daysLeft <= 3 and >= 0, set status to 'expiring_soon'
+    if (daysLeft >= 0 && daysLeft <= 3 && status !== 'expiring_soon') {
+      fridgeItem.status = 'expiring_soon';
+    } else if (daysLeft < 0 && status !== 'expired') {
+      fridgeItem.status = 'expired';
+    }
+    
+    // Save status if modified
+    if (fridgeItem.isModified('status')) {
+      await fridgeItem.save();
+    }
+
+    console.log(`[Notification] Checking item: ${foodItemName}, status: ${fridgeItem.status}, daysLeft: ${daysLeft}, expiryDate: ${fridgeItem.expiryDate}`);
+
+    // Check if item is expiring soon (0-3 days) or expired
+    // Priority: expired first, then expiring_soon
+    if (daysLeft < 0) {
+      // Item is expired
+      // Check if notification already exists for this specific fridgeItem
+      const existingNotification = await Notification.findOne({
+        userId: userId,
+        type: 'expired',
+        relatedId: fridgeItem._id,
+        relatedType: 'FridgeItem'
+      });
+
+      if (!existingNotification) {
+        const expiryDateStr = new Date(fridgeItem.expiryDate).toLocaleDateString('vi-VN');
+        const notification = await Notification.create({
+          userId: userId,
+          type: 'expired',
+          title: 'Thực phẩm đã hết hạn',
+          message: `Thực phẩm "${foodItemName}" đã hết hạn (HSD: ${expiryDateStr}). Vui lòng xử lý.`,
+          relatedId: fridgeItem._id,
+          relatedType: 'FridgeItem',
+          isRead: false
+        });
+        
+        console.log(`[Notification] ✅ Created expired notification for: ${foodItemName} (expiryDate: ${expiryDateStr})`);
+      } else {
+        console.log(`[Notification] ⏭️  Expired notification already exists for: ${foodItemName}`);
+      }
+    } else if (daysLeft >= 0 && daysLeft <= 3) {
+      // Item is expiring soon (0-3 days)
+      // Check if notification already exists for this specific fridgeItem
+      const existingNotification = await Notification.findOne({
+        userId: userId,
+        type: 'expiring_soon',
+        relatedId: fridgeItem._id,
+        relatedType: 'FridgeItem'
+      });
+
+      if (!existingNotification) {
+        // Format message according to requirements
+        // Include food name, days left, and expiry date
+        const expiryDateStr = new Date(fridgeItem.expiryDate).toLocaleDateString('vi-VN');
+        let message;
+        if (daysLeft === 0) {
+          message = `Thực phẩm "${foodItemName}" sẽ hết hạn hôm nay (HSD: ${expiryDateStr}).`;
+        } else if (daysLeft === 1) {
+          message = `Thực phẩm "${foodItemName}" sẽ hết hạn trong 1 ngày (HSD: ${expiryDateStr}).`;
+        } else {
+          message = `Thực phẩm "${foodItemName}" sẽ hết hạn trong ${daysLeft} ngày (HSD: ${expiryDateStr}).`;
+        }
+
+        const notification = await Notification.create({
+          userId: userId,
+          type: 'expiring_soon',
+          title: 'Thực phẩm sắp hết hạn',
+          message: message,
+          relatedId: fridgeItem._id,
+          relatedType: 'FridgeItem',
+          isRead: false
+        });
+        
+        console.log(`[Notification] ✅ Created expiring_soon notification for: ${foodItemName} (${daysLeft} days left, expiryDate: ${expiryDateStr})`);
+      } else {
+        console.log(`[Notification] ⏭️  Expiring_soon notification already exists for: ${foodItemName}`);
+      }
+    } else {
+      console.log(`[Notification] ⏭️  Skipping notification for ${foodItemName}: daysLeft=${daysLeft} (not expiring soon or expired)`);
+    }
+  } catch (error) {
+    console.error('[Notification] Error in checkAndCreateNotificationForItem:', error);
+    throw error;
+  }
 };
 
 /**
@@ -242,6 +369,23 @@ exports.createFridgeItem = async (req, res, next) => {
       await fridgeItem.populate(['foodItemId', 'unitId']);
     }
 
+    // Ensure status is up to date before checking notification
+    fridgeItem.updateStatus();
+    if (fridgeItem.isModified('status')) {
+      await fridgeItem.save();
+    }
+
+    // Check and create notification for expiring/expired items (realtime)
+    try {
+      console.log(`[Notification] Attempting to create notification for fridgeItem: ${fridgeItem._id}`);
+      await checkAndCreateNotificationForItem(fridgeItem);
+      console.log(`[Notification] Completed notification check for fridgeItem: ${fridgeItem._id}`);
+    } catch (notifError) {
+      console.error('[Notification] ❌ Error creating notification for fridge item:', notifError);
+      console.error('[Notification] Error stack:', notifError.stack);
+      // Don't fail the request if notification creation fails
+    }
+
     res.status(isNewItem ? 201 : 200).json({
       success: true,
       message: isNewItem 
@@ -295,6 +439,23 @@ exports.updateFridgeItem = async (req, res, next) => {
     
     await fridgeItem.save();
     await fridgeItem.populate(['foodItemId', 'unitId']);
+
+    // Ensure status is up to date
+    fridgeItem.updateStatus();
+    if (fridgeItem.isModified('status')) {
+      await fridgeItem.save();
+    }
+
+    // Check and create notification for expiring/expired items (realtime)
+    try {
+      console.log(`[Notification] Attempting to create notification for updated fridgeItem: ${fridgeItem._id}`);
+      await checkAndCreateNotificationForItem(fridgeItem);
+      console.log(`[Notification] Completed notification check for updated fridgeItem: ${fridgeItem._id}`);
+    } catch (notifError) {
+      console.error('[Notification] ❌ Error creating notification for updated fridge item:', notifError);
+      console.error('[Notification] Error stack:', notifError.stack);
+      // Don't fail the request if notification creation fails
+    }
 
     res.json({
       success: true,
@@ -419,6 +580,33 @@ exports.deleteFridgeItem = async (req, res, next) => {
       });
     }
 
+    const fridgeItemId = fridgeItem._id;
+
+    // Xóa các notification liên quan đến thực phẩm này
+    try {
+      const notifResult = await Notification.deleteMany({
+        userId: req.user.id,
+        relatedId: fridgeItemId,
+        relatedType: 'FridgeItem'
+      });
+      console.log(`✅ Đã xóa ${notifResult.deletedCount} notification liên quan đến FridgeItem ${fridgeItemId}`);
+    } catch (notifError) {
+      console.error('⚠ Lỗi khi xóa notification liên quan:', notifError);
+      // Không fail request nếu xóa notification thất bại
+    }
+
+    // Xóa các consumption logs liên quan đến thực phẩm này
+    try {
+      const logResult = await ConsumptionLog.deleteMany({
+        fridgeItemId: fridgeItemId
+      });
+      console.log(`✅ Đã xóa ${logResult.deletedCount} consumption log liên quan đến FridgeItem ${fridgeItemId}`);
+    } catch (logError) {
+      console.error('⚠ Lỗi khi xóa consumption log liên quan:', logError);
+      // Không fail request nếu xóa log thất bại
+    }
+
+    // Xóa thực phẩm
     await fridgeItem.deleteOne();
 
     res.json({
@@ -580,6 +768,22 @@ exports.createFridgeItemSimple = async (req, res, next) => {
         'unitId'
       ]);
 
+      // Ensure status is up to date
+      existingItem.updateStatus();
+      if (existingItem.isModified('status')) {
+        await existingItem.save();
+      }
+
+      // Check and create notification (realtime)
+      try {
+        console.log(`[Notification] Attempting to create notification for existingItem: ${existingItem._id}`);
+        await checkAndCreateNotificationForItem(existingItem);
+        console.log(`[Notification] Completed notification check for existingItem: ${existingItem._id}`);
+      } catch (notifError) {
+        console.error('[Notification] ❌ Error creating notification for existing item:', notifError);
+        console.error('[Notification] Error stack:', notifError.stack);
+      }
+
       return res.status(200).json({
         success: true,
         message: 'Đã cộng thêm số lượng vào thực phẩm hiện có',
@@ -613,6 +817,22 @@ exports.createFridgeItemSimple = async (req, res, next) => {
       },
       'unitId'
     ]);
+
+    // Ensure status is up to date
+    fridgeItem.updateStatus();
+    if (fridgeItem.isModified('status')) {
+      await fridgeItem.save();
+    }
+
+    // Check and create notification (realtime)
+    try {
+      console.log(`[Notification] Attempting to create notification for new fridgeItem: ${fridgeItem._id}`);
+      await checkAndCreateNotificationForItem(fridgeItem);
+      console.log(`[Notification] Completed notification check for new fridgeItem: ${fridgeItem._id}`);
+    } catch (notifError) {
+      console.error('[Notification] ❌ Error creating notification for new fridge item:', notifError);
+      console.error('[Notification] Error stack:', notifError.stack);
+    }
 
     res.status(201).json({
       success: true,

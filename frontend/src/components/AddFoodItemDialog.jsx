@@ -3,6 +3,7 @@ import { Dialog } from "@/components/ui/Dialog"
 import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Label } from "@/components/ui/Label"
+import { showToast } from "@/components/ui/Toast"
 import { getCategories, getFoodItems, getUnits } from "@/utils/api"
 
 const storageLocations = [
@@ -122,13 +123,13 @@ export function AddFoodItemDialog({ isOpen, onClose, onAdd }) {
     e.preventDefault()
 
     if (!formData.name || !formData.quantity) {
-      alert("Vui lòng điền đầy đủ thông tin")
+      showToast("Vui lòng điền đầy đủ thông tin", "warning")
       return
     }
 
     const quantity = parseFloat(formData.quantity)
     if (isNaN(quantity) || quantity <= 0) {
-      alert("Số lượng phải lớn hơn 0")
+      showToast("Số lượng phải lớn hơn 0", "warning")
       return
     }
 
@@ -136,12 +137,12 @@ export function AddFoodItemDialog({ isOpen, onClose, onAdd }) {
     const hasShelfLife = Number.isFinite(shelfLifeValue) && shelfLifeValue > 0
 
     if (!hasShelfLife && !formData.expiryDate) {
-      alert("Vui lòng nhập số ngày sử dụng hoặc hạn sử dụng")
+      showToast("Vui lòng nhập số ngày sử dụng hoặc hạn sử dụng", "warning")
       return
     }
 
     if (useManualExpiry && !formData.expiryDate) {
-      alert("Vui lòng nhập ngày hết hạn")
+      showToast("Vui lòng nhập ngày hết hạn", "warning")
       return
     }
 
@@ -152,7 +153,7 @@ export function AddFoodItemDialog({ isOpen, onClose, onAdd }) {
     if (expiryDate) {
       expiryDate.setHours(0, 0, 0, 0)
       if (expiryDate < today) {
-        alert("Ngày hết hạn không được là ngày trong quá khứ")
+        showToast("Ngày hết hạn không được là ngày trong quá khứ", "warning")
         return
       }
     }

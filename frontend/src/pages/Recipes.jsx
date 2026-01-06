@@ -79,14 +79,33 @@ export function Recipes() {
         getFridgeItems()
       ])
 
+      console.log('Recipes API response:', recipesRes)
+      console.log('Fridge API response:', fridgeRes)
+
+      // Check if API calls were successful
+      if (!recipesRes.success) {
+        throw new Error(recipesRes.message || 'Không thể tải gợi ý món ăn')
+      }
+
+      if (!fridgeRes.success) {
+        console.warn('Fridge items API failed:', fridgeRes.message)
+        // Don't throw, just use empty array
+      }
+
       const fetchedRecipes = recipesRes.data?.recipes || []
       const fetchedFridge = fridgeRes.data?.fridgeItems || []
+
+      console.log('Fetched recipes:', fetchedRecipes)
+      console.log('Fetched fridge items:', fetchedFridge)
 
       setRecipes(fetchedRecipes.map(normalizeRecipe))
       setFridgeItems(fetchedFridge)
     } catch (err) {
       console.error("Error fetching recipes:", err)
       setError(err.message || "Không thể tải gợi ý món ăn")
+      // Set empty arrays on error to prevent crashes
+      setRecipes([])
+      setFridgeItems([])
     } finally {
       setLoading(false)
     }

@@ -27,7 +27,7 @@ export function Dialog({ isOpen, onClose, title, children, className }) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/50 animate-in fade-in-0"
@@ -37,11 +37,12 @@ export function Dialog({ isOpen, onClose, title, children, className }) {
       <div
         ref={dialogRef}
         className={cn(
-          "relative z-50 w-full max-w-lg rounded-xl border bg-card p-6 shadow-lg animate-in fade-in-0 zoom-in-95",
+          "relative z-50 w-full max-w-lg max-h-[90vh] rounded-xl border bg-card shadow-lg animate-in fade-in-0 zoom-in-95 flex flex-col",
           className
         )}
       >
-        <div className="flex items-center justify-between mb-4">
+        {/* Header - Fixed */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b flex-shrink-0">
           <h2 className="text-xl font-semibold">{title}</h2>
           <button
             onClick={onClose}
@@ -50,7 +51,10 @@ export function Dialog({ isOpen, onClose, title, children, className }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        {children}
+        {/* Content - Scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {children}
+        </div>
       </div>
     </div>
   )

@@ -74,5 +74,25 @@ exports.markAllAsRead = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Manually trigger check for expiring items (for testing)
+ * @route   POST /api/notifications/check-expiring
+ * @access  Private
+ */
+exports.checkExpiringItems = async (req, res, next) => {
+  try {
+    const notificationService = require('../services/notification.service');
+    const result = await notificationService.checkExpiringFridgeItems();
+    
+    res.json({
+      success: result.success,
+      message: `Đã kiểm tra và tạo ${result.created} thông báo`,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 

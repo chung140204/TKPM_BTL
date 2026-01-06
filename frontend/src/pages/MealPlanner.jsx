@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import { Card, CardContent } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { DayColumn } from "@/components/MealPlanner/DayColumn"
 import { RecipeModal } from "@/components/MealPlanner/RecipeModal"
 import { RecipeDetailDialog } from "@/components/RecipeDetailDialog"
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog"
 import { ShoppingCart, Calendar, Sparkles, Loader2 } from "lucide-react"
 import { mockRecipes, mockFridgeItems as initialMockFridgeItems } from "@/data/mockData"
 import { generateShoppingListFromMealPlan } from "@/utils/generateShoppingListFromMealPlan"
+import { showToast } from "@/components/ui/Toast"
 import { 
   getMealPlans, 
   createMealPlan, 
@@ -66,9 +69,10 @@ function getInitialMealPlan() {
 // Transform backend meal plan (meals array) to frontend format (days object)
 function transformMealPlanFromAPI(mealPlanData, startDate) {
   const frontendPlan = getInitialMealPlan()
+  const autoSuggested = new Set()
   
   if (!mealPlanData || !mealPlanData.meals) {
-    return frontendPlan
+    return { mealPlan: frontendPlan, autoSuggested }
   }
   
   mealPlanData.meals.forEach(meal => {
@@ -80,6 +84,7 @@ function transformMealPlanFromAPI(mealPlanData, startDate) {
       const mealType = meal.mealType
       
       if (day && mealType && meal.recipeId) {
+        const isAutoSuggested = meal.isAutoSuggested || false
         frontendPlan[day] = {
           ...frontendPlan[day],
           [mealType]: {
@@ -87,14 +92,20 @@ function transformMealPlanFromAPI(mealPlanData, startDate) {
             name: meal.recipeId.name || 'Unknown',
             calories: meal.recipeId.calories || 0,
             image: meal.recipeId.image || null,
-            servings: meal.servings || 4
+            servings: meal.servings || 4,
+            isAutoSuggested: isAutoSuggested
           }
+        }
+        
+        // Track auto-suggested slots
+        if (isAutoSuggested) {
+          autoSuggested.add(`${day}-${mealType}`)
         }
       }
     }
   })
   
-  return frontendPlan
+  return { mealPlan: frontendPlan, autoSuggested }
 }
 
 // Transform frontend format (days object) to backend format (meals array)
@@ -113,7 +124,8 @@ function transformMealPlanToAPI(frontendPlan, startDate) {
           mealType: mealType,
           recipeId: meal.id,
           servings: meal.servings || 4,
-          status: 'planned'
+          status: 'planned',
+          isAutoSuggested: meal.isAutoSuggested === true // Explicitly check for true
         })
       }
     })
@@ -164,71 +176,80 @@ function calculateRecipeMatch(recipe, fridgeItems) {
   return Math.round((availableCount / allRequired.length) * 100)
 }
 
-// Smart suggest meals based on fridge ingredients
-function smartSuggestMeals(currentMealPlan, fridgeItems) {
-  const fridgeNameSet = new Set(
-    fridgeItems.map(item => item.name.toLowerCase())
-  )
-
-  // Calculate matchPercentage for all recipes
+// Helper: Get sorted recipes by match percentage
+function getSortedRecipes(fridgeItems) {
   const recipesWithMatch = mockRecipes.map(recipe => {
     const matchPercentage = calculateRecipeMatch(recipe, fridgeItems)
     return { ...recipe, matchPercentage }
   })
 
   // Sort recipes: favorites first, then by matchPercentage descending
-  const sortedRecipes = [...recipesWithMatch].sort((a, b) => {
+  return [...recipesWithMatch].sort((a, b) => {
     if (a.isFavorite && !b.isFavorite) return -1
     if (!a.isFavorite && b.isFavorite) return 1
     return b.matchPercentage - a.matchPercentage
   })
+}
 
-  const newMealPlan = { ...currentMealPlan }
-  const usedRecipeIds = new Set()
+// Smart suggest meals for a specific day
+function smartSuggestMealsForDay(day, currentMealPlan, fridgeItems) {
+  const sortedRecipes = getSortedRecipes(fridgeItems)
+  const dayMeals = currentMealPlan[day] || {}
+  const dayUsedIds = new Set()
+
+  // Collect already used recipe IDs for this day
+  Object.values(dayMeals).forEach(meal => {
+    if (meal && meal.id) {
+      dayUsedIds.add(meal.id)
+    }
+  })
+
+  const updatedDayMeals = { ...dayMeals }
   let suggestedCount = 0
 
-  // Fill empty slots
-  days.forEach(day => {
-    const dayMeals = newMealPlan[day]
-    const dayUsedIds = new Set()
+  // Fill each meal type if empty
+  Object.keys(dayMeals).forEach(mealType => {
+    if (!dayMeals[mealType]) {
+      // Find best recipe that hasn't been used in this day
+      const bestRecipe = sortedRecipes.find(recipe => 
+        !dayUsedIds.has(recipe.id)
+      )
 
-    // Collect already used recipe IDs for this day
-    Object.values(dayMeals).forEach(meal => {
-      if (meal && meal.id) {
-        dayUsedIds.add(meal.id)
-      }
-    })
-
-    // Fill each meal type if empty
-    Object.keys(dayMeals).forEach(mealType => {
-      if (!dayMeals[mealType]) {
-        // Find best recipe that hasn't been used in this day
-        const bestRecipe = sortedRecipes.find(recipe => 
-          !dayUsedIds.has(recipe.id)
-        )
-
-        if (bestRecipe) {
-          newMealPlan[day] = {
-            ...newMealPlan[day],
-            [mealType]: {
-              id: bestRecipe.id,
-              name: bestRecipe.name,
-              calories: bestRecipe.calories || Math.floor(Math.random() * 200) + 300,
-              image: bestRecipe.image,
-              isAutoSuggested: true // Mark as auto-suggested
-            }
-          }
-          dayUsedIds.add(bestRecipe.id)
-          suggestedCount++
+      if (bestRecipe) {
+        updatedDayMeals[mealType] = {
+          id: bestRecipe.id,
+          name: bestRecipe.name,
+          calories: bestRecipe.calories || Math.floor(Math.random() * 200) + 300,
+          image: bestRecipe.image,
+          isAutoSuggested: true // Mark as auto-suggested
         }
+        dayUsedIds.add(bestRecipe.id)
+        suggestedCount++
       }
-    })
+    }
+  })
+
+  return { updatedDayMeals, suggestedCount }
+}
+
+// Smart suggest meals based on fridge ingredients (for all days)
+function smartSuggestMeals(currentMealPlan, fridgeItems) {
+  const sortedRecipes = getSortedRecipes(fridgeItems)
+  const newMealPlan = { ...currentMealPlan }
+  let suggestedCount = 0
+
+  // Fill empty slots for all days
+  days.forEach(day => {
+    const { updatedDayMeals, suggestedCount: dayCount } = smartSuggestMealsForDay(day, currentMealPlan, fridgeItems)
+    newMealPlan[day] = updatedDayMeals
+    suggestedCount += dayCount
   })
 
   return { newMealPlan, suggestedCount }
 }
 
 export function MealPlanner() {
+  const navigate = useNavigate()
   const [mealPlan, setMealPlan] = useState(getInitialMealPlan())
   const [currentMealPlanId, setCurrentMealPlanId] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -242,6 +263,7 @@ export function MealPlanner() {
   const [autoSuggestedSlots, setAutoSuggestedSlots] = useState(new Set())
   const [fridgeItems, setFridgeItems] = useState([])
   const [isSmartSuggesting, setIsSmartSuggesting] = useState(false)
+  const [showSmartSuggestConfirm, setShowSmartSuggestConfirm] = useState(false)
 
   const { startDate, endDate } = getCurrentWeekDates()
 
@@ -252,7 +274,8 @@ export function MealPlanner() {
         setLoading(true)
         setError(null)
         
-        console.log('Fetching meal plans from API...')
+        // Always fetch from backend - backend is source of truth
+        console.log('🔄 Fetching meal plans from API (backend is source of truth)...')
         const response = await getMealPlans()
         console.log('Meal plans API response:', response)
         
@@ -265,26 +288,29 @@ export function MealPlanner() {
           })
           
           if (currentWeekPlan) {
-            console.log('Found meal plan for current week:', currentWeekPlan)
+            console.log('✅ Found meal plan for current week:', currentWeekPlan._id)
             setCurrentMealPlanId(currentWeekPlan._id)
-            const transformed = transformMealPlanFromAPI(currentWeekPlan, startDate)
-            setMealPlan(transformed)
-            console.log('✅ Loaded meal plan from database')
+            const { mealPlan: transformedPlan, autoSuggested } = transformMealPlanFromAPI(currentWeekPlan, startDate)
+            setMealPlan(transformedPlan)
+            setAutoSuggestedSlots(autoSuggested)
+            console.log('✅ Loaded meal plan from database (backend source of truth)')
           } else {
-            console.log('No meal plan found for current week, using empty plan')
+            console.log('ℹ️ No meal plan found for current week, using empty plan')
             setMealPlan(getInitialMealPlan())
+            setAutoSuggestedSlots(new Set())
+            setCurrentMealPlanId(null)
           }
         } else {
           throw new Error(response.message || 'API trả về lỗi')
         }
       } catch (err) {
-        console.error('Error fetching meal plan:', err)
+        console.error('❌ Error fetching meal plan from backend:', err)
         setError(err.message || 'Không thể kết nối đến server')
-        
-        // Fallback to localStorage
-        const localPlan = loadMealPlanFromStorage()
-        setMealPlan(localPlan)
-        console.warn('⚠ Using localStorage data as fallback')
+        // Do NOT use localStorage fallback - backend is source of truth
+        // Initialize with empty plan if backend fails
+        setMealPlan(getInitialMealPlan())
+        setAutoSuggestedSlots(new Set())
+        setCurrentMealPlanId(null)
       } finally {
         setLoading(false)
       }
@@ -325,11 +351,14 @@ export function MealPlanner() {
   }, [mealPlan, loading])
 
   // Save meal plan to database
-  const saveMealPlanToDatabase = async () => {
+  // Accept optional mealPlanToSave and mealPlanIdToUse parameters to avoid stale closure issues
+  const saveMealPlanToDatabase = async (mealPlanToSave = null, mealPlanIdToUse = null) => {
     try {
       setSaving(true)
       
-      const meals = transformMealPlanToAPI(mealPlan, startDate)
+      // Use provided meal plan or current state
+      const planToSave = mealPlanToSave || mealPlan
+      const meals = transformMealPlanToAPI(planToSave, startDate)
       const mealPlanData = {
         name: `Kế hoạch bữa ăn tuần ${startDate.toLocaleDateString('vi-VN')}`,
         startDate: startDate.toISOString(),
@@ -337,29 +366,42 @@ export function MealPlanner() {
         meals: meals
       }
       
-      if (currentMealPlanId) {
+      // Get current meal plan ID - use state getter to avoid stale closure
+      // Accept optional mealPlanIdToUse parameter to avoid stale closure issues
+      const mealPlanId = mealPlanIdToUse !== null ? mealPlanIdToUse : currentMealPlanId
+      
+      if (mealPlanId) {
         // Update existing meal plan
-        console.log('Updating meal plan:', currentMealPlanId)
-        const response = await updateMealPlan(currentMealPlanId, mealPlanData)
+        console.log('🔄 Updating meal plan:', mealPlanId)
+        const response = await updateMealPlan(mealPlanId, mealPlanData)
         if (response.success) {
           console.log('✅ Meal plan updated in database')
+        } else {
+          throw new Error(response.message || 'Failed to update meal plan')
         }
       } else {
         // Create new meal plan
-        console.log('Creating new meal plan')
+        console.log('🆕 Creating new meal plan')
         const response = await createMealPlan(mealPlanData)
-        if (response.success && response.data?.mealPlan) {
-          setCurrentMealPlanId(response.data.mealPlan._id)
-          console.log('✅ Meal plan created in database')
+        if (response.success && response.data?.mealPlan?._id) {
+          const newId = response.data.mealPlan._id
+          setCurrentMealPlanId(newId)
+          console.log('✅ Meal plan created in database with ID:', newId)
+        } else {
+          console.error('❌ Failed to create meal plan:', response)
+          throw new Error(response.message || 'Failed to create meal plan')
         }
       }
-      
-      // Also save to localStorage as backup
-      saveMealPlanToStorage(mealPlan)
     } catch (err) {
-      console.error('Error saving meal plan to database:', err)
-      // Still save to localStorage as fallback
-      saveMealPlanToStorage(mealPlan)
+      console.error('❌ Error saving meal plan to database:', err)
+      // Log more details for debugging
+      if (err.response) {
+        console.error('Response error:', err.response)
+      }
+      if (err.data) {
+        console.error('Error data:', err.data)
+      }
+      throw err // Re-throw to allow caller to handle
     } finally {
       setSaving(false)
     }
@@ -443,23 +485,19 @@ export function MealPlanner() {
   }
 
   const handleSmartSuggest = () => {
-    // Show confirmation modal
-    if (!window.confirm(
-      "Tính năng này sẽ tự động đề xuất bữa ăn dựa trên thực phẩm hiện có trong tủ lạnh.\n\n" +
-      "Các bữa ăn đã được lên kế hoạch sẽ không bị thay đổi.\n\n" +
-      "Bạn có muốn tiếp tục?"
-    )) {
-      return
-    }
+    setShowSmartSuggestConfirm(true)
+  }
 
+  const confirmSmartSuggest = () => {
+    setShowSmartSuggestConfirm(false)
     setIsSmartSuggesting(true)
 
     // Simulate processing (for better UX)
-    setTimeout(() => {
+    setTimeout(async () => {
       const { newMealPlan, suggestedCount } = smartSuggestMeals(mealPlan, fridgeItems)
 
       if (suggestedCount === 0) {
-        alert("Tất cả các bữa ăn đã được lên kế hoạch!")
+        showToast("Tất cả các bữa ăn đã được lên kế hoạch!", "info")
         setIsSmartSuggesting(false)
         return
       }
@@ -479,14 +517,78 @@ export function MealPlanner() {
       setMealPlan(newMealPlan)
       setIsSmartSuggesting(false)
 
+      // Save meal plan to database IMMEDIATELY (bypass debounce) to persist suggestions
+      try {
+        // Use currentMealPlanId from state, but pass it explicitly to avoid stale closure
+        await saveMealPlanToDatabase(newMealPlan, currentMealPlanId)
+        console.log('✅ Smart Suggest: Meal plan saved immediately to database')
+      } catch (err) {
+        console.error('❌ Error saving meal plan after Smart Suggest:', err)
+        console.error('Error details:', err.message, err)
+        showToast(`Đã đề xuất món ăn nhưng không thể lưu vào database: ${err.message || 'Lỗi không xác định'}. Vui lòng thử lại.`, "error")
+        return
+      }
+
       // Show feedback
-      alert(`Đã đề xuất ${suggestedCount} bữa ăn dựa trên thực phẩm trong tủ lạnh`)
+      showToast(`Đã đề xuất ${suggestedCount} bữa ăn dựa trên thực phẩm trong tủ lạnh`, "success")
 
       // Remove glow effect after 3 seconds
       setTimeout(() => {
         setAutoSuggestedSlots(new Set())
       }, 3000)
     }, 500) // Small delay for UX
+  }
+
+  const handleSuggestForDay = async (day) => {
+    const { updatedDayMeals, suggestedCount } = smartSuggestMealsForDay(day, mealPlan, fridgeItems)
+
+    if (suggestedCount === 0) {
+      showToast(`Tất cả các bữa ăn cho ${dayNames[day]} đã được lên kế hoạch!`, "info")
+      return
+    }
+
+    // Track auto-suggested slots for this day
+    const newAutoSuggested = new Set(autoSuggestedSlots)
+    Object.keys(updatedDayMeals).forEach(mealType => {
+      const meal = updatedDayMeals[mealType]
+      if (meal && meal.isAutoSuggested) {
+        newAutoSuggested.add(`${day}-${mealType}`)
+      }
+    })
+
+    const updatedMealPlan = {
+      ...mealPlan,
+      [day]: updatedDayMeals
+    }
+
+    setAutoSuggestedSlots(newAutoSuggested)
+    setMealPlan(updatedMealPlan)
+
+    // Save meal plan to database IMMEDIATELY (bypass debounce) to persist suggestions
+    try {
+      // Pass both meal plan and ID explicitly to avoid stale closure
+      await saveMealPlanToDatabase(updatedMealPlan, currentMealPlanId)
+      console.log('✅ Day Suggest: Meal plan saved immediately to database')
+    } catch (err) {
+      console.error('❌ Error saving meal plan after Day Suggest:', err)
+      console.error('Error details:', err.message, err)
+      showToast(`Đã đề xuất món ăn nhưng không thể lưu vào database: ${err.message || 'Lỗi không xác định'}. Vui lòng thử lại.`, "error")
+      return
+    }
+
+    // Show feedback
+    showToast(`Đã đề xuất ${suggestedCount} bữa ăn cho ${dayNames[day]}`, "success")
+
+    // Remove glow effect after 3 seconds (but keep the isAutoSuggested flag)
+    setTimeout(() => {
+      setAutoSuggestedSlots(prev => {
+        const updated = new Set(prev)
+        Object.keys(updatedDayMeals).forEach(mealType => {
+          updated.delete(`${day}-${mealType}`)
+        })
+        return updated
+      })
+    }, 3000)
   }
 
   const handleGenerateShoppingList = async () => {
@@ -496,7 +598,7 @@ export function MealPlanner() {
     )
 
     if (!hasMeals) {
-      alert("Vui lòng thêm ít nhất một món ăn vào kế hoạch")
+      showToast("Vui lòng thêm ít nhất một món ăn vào kế hoạch", "warning")
       return
     }
 
@@ -504,7 +606,7 @@ export function MealPlanner() {
       // Save meal plan first if not saved
       await saveMealPlanToDatabase()
       if (!currentMealPlanId) {
-        alert("Vui lòng đợi lưu kế hoạch bữa ăn trước khi tạo danh sách mua sắm")
+        showToast("Vui lòng đợi lưu kế hoạch bữa ăn trước khi tạo danh sách mua sắm", "warning")
         return
       }
     }
@@ -514,14 +616,22 @@ export function MealPlanner() {
       const response = await generateShoppingListAPI(currentMealPlanId)
       
       if (response.success) {
-        alert(
-          `✅ ${response.message}\n\n` +
-          `Danh sách mua sắm đã được tạo từ kế hoạch bữa ăn.\n` +
-          `Bạn có thể xem danh sách trong trang "Danh sách mua sắm".`
-        )
+        console.log('✅ Shopping list created:', response.data)
         
-        // Dispatch event to notify Shopping page to refresh
+        // Immediately dispatch event to notify Shopping page to refresh
         window.dispatchEvent(new CustomEvent('shoppingListsUpdated'))
+        
+        // Navigate to shopping page to show the new list
+        // Use setTimeout to allow toast to show first
+        setTimeout(() => {
+          navigate('/shopping')
+        }, 1000)
+        
+        showToast(
+          `${response.message}\n\n` +
+          `Đang chuyển đến trang "Danh sách mua sắm"...`,
+          "success"
+        )
       } else {
         throw new Error(response.message || 'Lỗi khi tạo danh sách mua sắm')
       }
@@ -531,17 +641,18 @@ export function MealPlanner() {
       const result = generateShoppingListFromMealPlan(mealPlan)
       
       if (!result.success) {
-        alert(result.message || "Có lỗi xảy ra khi tạo danh sách mua sắm")
+        showToast(result.message || "Có lỗi xảy ra khi tạo danh sách mua sắm", "error")
         return
       }
 
       if (result.missingIngredientsCount === 0) {
-        alert("✅ " + result.message)
+        showToast(result.message, "success")
       } else {
-        alert(
-          `✅ ${result.message}\n\n` +
+        showToast(
+          `${result.message}\n\n` +
           `Danh sách mua sắm đã được tạo với ${result.missingIngredientsCount} nguyên liệu thiếu hụt.\n` +
-          `Bạn có thể xem danh sách trong trang "Danh sách mua sắm".`
+          `Bạn có thể xem danh sách trong trang "Danh sách mua sắm".`,
+          "success"
         )
         
         window.dispatchEvent(new CustomEvent('shoppingListsUpdated'))
@@ -566,7 +677,7 @@ export function MealPlanner() {
   }
 
   return (
-    <div className="space-y-6 p-6 pb-24">
+    <div className="space-y-6 p-6 pb-32 relative">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -600,6 +711,20 @@ export function MealPlanner() {
               </>
             )}
           </Button>
+          <Button
+            onClick={handleGenerateShoppingList}
+            disabled={totalMeals === 0}
+            className={
+              totalMeals === 0
+                ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
+                : "bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white shadow-lg hover:shadow-xl transition-all font-semibold"
+            }
+            size="lg"
+            title={totalMeals === 0 ? "Vui lòng thêm ít nhất một món ăn vào kế hoạch" : "Tạo danh sách mua sắm từ kế hoạch bữa ăn"}
+          >
+            <ShoppingCart className="mr-2 h-5 w-5" />
+            Tạo danh sách mua sắm
+          </Button>
           <Card>
             <CardContent className="p-4">
               <div className="text-center">
@@ -622,6 +747,8 @@ export function MealPlanner() {
             onRemoveMeal={handleRemoveMeal}
             autoSuggestedSlots={autoSuggestedSlots}
             onViewRecipe={handleViewRecipe}
+            onSuggestDay={handleSuggestForDay}
+            fridgeItems={fridgeItems}
           />
         ))}
       </div>
@@ -647,23 +774,16 @@ export function MealPlanner() {
         recipe={selectedRecipe}
       />
 
-      {/* Generate Shopping List Button */}
-      <div className="fixed bottom-6 right-6 z-50">
-        <Button
-          onClick={handleGenerateShoppingList}
-          size="lg"
-          disabled={totalMeals === 0}
-          className={
-            totalMeals === 0
-              ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
-              : "bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-lg hover:shadow-xl transition-all text-white"
-          }
-          title={totalMeals === 0 ? "Vui lòng thêm ít nhất một món ăn vào kế hoạch" : "Tạo danh sách mua sắm từ kế hoạch bữa ăn"}
-        >
-          <ShoppingCart className="mr-2 h-5 w-5" />
-          Tạo danh sách mua sắm
-        </Button>
-      </div>
+      <ConfirmDialog
+        isOpen={showSmartSuggestConfirm}
+        onClose={() => setShowSmartSuggestConfirm(false)}
+        onConfirm={confirmSmartSuggest}
+        title="Đề xuất bữa ăn thông minh"
+        message="Tính năng này sẽ tự động đề xuất bữa ăn dựa trên thực phẩm hiện có trong tủ lạnh.\n\nCác bữa ăn đã được lên kế hoạch sẽ không bị thay đổi.\n\nBạn có muốn tiếp tục?"
+        confirmText="Tiếp tục"
+        cancelText="Hủy"
+        variant="default"
+      />
     </div>
   )
 }

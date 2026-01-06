@@ -16,15 +16,21 @@ const User = require('../models/User.model');
  */
 exports.checkExpiringFridgeItems = async () => {
   try {
+    // Use start of day for proper timezone handling
     const now = new Date();
-    const threeDaysLater = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    
+    // Calculate 3 days from today (inclusive)
+    const threeDaysLater = new Date(startOfToday);
     threeDaysLater.setDate(threeDaysLater.getDate() + 3);
+    threeDaysLater.setHours(23, 59, 59, 999);
 
-    // Lấy tất cả FridgeItems có status = "expiring_soon" hoặc sắp hết hạn trong 3 ngày
+    // 1. Update status to 'expiring_soon' for items expiring within 3 days
     const expiringItems = await FridgeItem.find({
-      status: { $in: ['available', 'expiring_soon'] },
+      status: 'available',
       expiryDate: {
-        $gte: now,
+        $gte: startOfToday,
         $lte: threeDaysLater
       },
       quantity: { $gt: 0 }
@@ -32,66 +38,148 @@ exports.checkExpiringFridgeItems = async () => {
       .populate('foodItemId', 'name')
       .populate('userId', 'email fullName');
 
+    console.log(`[Notification Service] Tìm thấy ${expiringItems.length} items với status 'available' và expiryDate trong 0-3 ngày`);
+
+    // Update status to expiring_soon
+    const itemIdsToUpdate = expiringItems.map(item => item._id);
+    if (itemIdsToUpdate.length > 0) {
+      await FridgeItem.updateMany(
+        { _id: { $in: itemIdsToUpdate } },
+        { status: 'expiring_soon' }
+      );
+      console.log(`[Notification Service] Đã update ${itemIdsToUpdate.length} items thành status 'expiring_soon'`);
+      // Refresh items after update
+      for (const item of expiringItems) {
+        item.status = 'expiring_soon';
+      }
+    }
+
+    // 2. Handle expired items (expiryDate < today)
+    const expiredItems = await FridgeItem.find({
+      status: { $in: ['available', 'expiring_soon'] },
+      expiryDate: { $lt: startOfToday },
+      quantity: { $gt: 0 }
+    })
+      .populate('foodItemId', 'name')
+      .populate('userId', 'email fullName');
+
+    // Update expired items status
+    const expiredIds = expiredItems.map(item => item._id);
+    if (expiredIds.length > 0) {
+      await FridgeItem.updateMany(
+        { _id: { $in: expiredIds } },
+        { status: 'expired' }
+      );
+    }
+
+    // 3. Get all items in expiring_soon status (including newly updated ones)
+    const allExpiringItems = await FridgeItem.find({
+      status: 'expiring_soon',
+      quantity: { $gt: 0 }
+    })
+      .populate('foodItemId', 'name')
+      .populate('userId', 'email fullName');
+
+    console.log(`[Notification Service] Tìm thấy ${allExpiringItems.length} items với status 'expiring_soon'`);
+
     let createdCount = 0;
     const errors = [];
 
-    // Group by userId để tránh spam notifications
-    const userItemsMap = new Map();
-
-    expiringItems.forEach(item => {
-      if (!item.foodItemId || !item.userId) return;
-
-      const userId = item.userId._id.toString();
-      const daysLeft = item.getDaysLeft();
-
-      // Chỉ tạo notification cho items còn 0-3 ngày
-      if (daysLeft < 0 || daysLeft > 3) return;
-
-      if (!userItemsMap.has(userId)) {
-        userItemsMap.set(userId, []);
+    // 4. Create notifications for expiring items (no duplicates)
+    for (const item of allExpiringItems) {
+      if (!item.foodItemId || !item.userId) {
+        console.log(`[Notification Service] Bỏ qua item ${item._id}: thiếu foodItemId hoặc userId`);
+        continue;
       }
-      userItemsMap.get(userId).push({
-        item,
-        daysLeft
-      });
-    });
 
-    // Tạo notification cho mỗi user
-    for (const [userId, items] of userItemsMap) {
+      const userId = item.userId._id || item.userId;
+      const daysLeft = item.getDaysLeft();
+      const foodItemName = item.foodItemId.name || 'Thực phẩm';
+
+      console.log(`[Notification Service] Kiểm tra item: ${foodItemName}, daysLeft=${daysLeft}, userId=${userId}`);
+
+      // Only create notifications for items within 0-3 days
+      if (daysLeft < 0 || daysLeft > 3) {
+        console.log(`[Notification Service] Bỏ qua ${foodItemName}: daysLeft=${daysLeft} (không trong khoảng 0-3)`);
+        continue;
+      }
+
       try {
-        // Kiểm tra xem đã có notification gần đây chưa (trong 24h)
-        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        // Check if notification already exists for this item while in expiring_soon status
         const existingNotification = await Notification.findOne({
           userId: userId,
-          type: 'expiry_reminder',
-          relatedId: { $in: items.map(i => i.item._id) },
-          createdAt: { $gte: oneDayAgo }
+          type: 'expiring_soon',
+          relatedId: item._id,
+          relatedType: 'FridgeItem'
         });
 
         if (existingNotification) {
-          continue; // Đã có notification gần đây, bỏ qua
+          continue; // Already has notification, skip
         }
 
-        // Tạo notification cho từng item hoặc tổng hợp
-        for (const { item, daysLeft } of items) {
-          const foodItemName = item.foodItemId.name || 'Thực phẩm';
-          const daysText = daysLeft === 0 ? 'hôm nay' : daysLeft === 1 ? '1 ngày nữa' : `${daysLeft} ngày nữa`;
+        // Create notification
+        const foodItemName = item.foodItemId.name || 'Thực phẩm';
+        const daysText = daysLeft === 0 
+          ? 'hôm nay' 
+          : daysLeft === 1 
+            ? 'còn 1 ngày nữa' 
+            : `còn ${daysLeft} ngày nữa`;
 
-          await Notification.create({
-            userId: userId,
-            type: 'expiry_reminder',
-            title: 'Thực phẩm sắp hết hạn',
-            message: `${foodItemName} sẽ hết hạn sau ${daysText}`,
-            relatedId: item._id,
-            relatedType: 'FridgeItem',
-            isRead: false
-          });
+        const notification = await Notification.create({
+          userId: userId,
+          type: 'expiring_soon',
+          title: 'Thực phẩm sắp hết hạn',
+          message: `${foodItemName} – ${daysText} sẽ hết hạn`,
+          relatedId: item._id,
+          relatedType: 'FridgeItem',
+          isRead: false
+        });
 
-          createdCount++;
-        }
+        console.log(`[Notification Service] ✅ Đã tạo notification cho ${foodItemName} (${daysLeft} ngày)`);
+        createdCount++;
       } catch (error) {
         errors.push({
-          userId,
+          itemId: item._id.toString(),
+          error: error.message
+        });
+      }
+    }
+
+    // 5. Create notifications for expired items (optional, one per item)
+    for (const item of expiredItems) {
+      if (!item.foodItemId || !item.userId) continue;
+
+      const userId = item.userId._id;
+
+      try {
+        // Check if notification already exists
+        const existingNotification = await Notification.findOne({
+          userId: userId,
+          type: 'expired',
+          relatedId: item._id,
+          relatedType: 'FridgeItem'
+        });
+
+        if (existingNotification) {
+          continue; // Already has notification
+        }
+
+        // Create expired notification
+        const foodItemName = item.foodItemId.name || 'Thực phẩm';
+        await Notification.create({
+          userId: userId,
+          type: 'expired',
+          title: 'Thực phẩm đã hết hạn',
+          message: `Thực phẩm "${foodItemName}" đã hết hạn. Vui lòng xử lý.`,
+          relatedId: item._id,
+          relatedType: 'FridgeItem',
+          isRead: false
+        });
+
+        createdCount++;
+      } catch (error) {
+        errors.push({
+          itemId: item._id.toString(),
           error: error.message
         });
       }

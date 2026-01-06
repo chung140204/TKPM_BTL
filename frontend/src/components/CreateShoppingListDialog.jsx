@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Label } from "@/components/ui/Label"
 import { Plus, X, Calendar, Users } from "lucide-react"
+import { showToast } from "@/components/ui/Toast"
 import { getCategories, getFoodItems, getUnits } from "@/utils/api"
 
 const storageLocations = [
@@ -304,21 +305,21 @@ export function CreateShoppingListDialog({
     e.preventDefault()
 
     if (!listName.trim()) {
-      alert("Vui lòng nhập tên danh sách")
+      showToast("Vui lòng nhập tên danh sách", "warning")
       return
     }
 
     const validItems = items.filter(item => item.name.trim() && item.quantity.trim())
 
     if (validItems.length === 0) {
-      alert("Vui lòng thêm ít nhất một món hàng")
+      showToast("Vui lòng thêm ít nhất một món hàng", "warning")
       return
     }
 
     for (const item of validItems) {
       if (item.useManualExpiry) {
         if (!item.expiryDate) {
-          alert(`Vui lòng nhập hạn sử dụng cho "${item.name}"`)
+          showToast(`Vui lòng nhập hạn sử dụng cho "${item.name}"`, "warning")
           return
         }
         continue
@@ -327,7 +328,7 @@ export function CreateShoppingListDialog({
       if (!item.isExisting) {
         const shelfLifeValue = Number(item.shelfLifeDays)
         if (!Number.isFinite(shelfLifeValue) || shelfLifeValue <= 0) {
-          alert(`Vui lòng nhập số ngày sử dụng hợp lệ cho "${item.name}"`)
+          showToast(`Vui lòng nhập số ngày sử dụng hợp lệ cho "${item.name}"`, "warning")
           return
         }
       }
