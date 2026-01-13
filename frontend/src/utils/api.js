@@ -24,7 +24,7 @@ function appendViewParam(endpoint) {
 }
 
 // Make API request
-async function apiRequest(endpoint, options = {}) {
+export async function apiRequest(endpoint, options = {}) {
   const token = getAuthToken()
   
   const { body, headers, ...restOptions } = options
@@ -110,6 +110,16 @@ export async function changePassword(currentPassword, newPassword) {
     return response
   } catch (error) {
     console.error('Error changing password:', error)
+    throw error
+  }
+}
+
+export async function getMe() {
+  try {
+    const response = await apiRequest('/auth/me')
+    return response
+  } catch (error) {
+    console.error('Error fetching user data:', error)
     throw error
   }
 }
@@ -846,6 +856,18 @@ export async function deleteShoppingList(listId) {
 }
 
 // Recipe APIs
+export async function toggleFavoriteRecipe(recipeId) {
+  try {
+    const response = await apiRequest(`/recipes/${recipeId}/toggle-favorite`, {
+      method: 'POST',
+    })
+    return response
+  } catch (error) {
+    console.error('Error toggling favorite recipe:', error)
+    throw error
+  }
+}
+
 export async function getSuggestedRecipes() {
   try {
     const response = await apiRequest('/recipes/suggest')

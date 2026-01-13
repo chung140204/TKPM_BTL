@@ -13,6 +13,8 @@ import {
   getFoodItems,
   getMyRecipes,
   getUnits,
+  getCategories,
+  createFoodItem,
   checkRecipeIngredients,
   submitRecipeForApproval
 } from "@/utils/api"
@@ -28,7 +30,7 @@ const createEmptyRecipeForm = () => ({
   cookTime: 0,
   image: "",
   ingredients: [
-    { foodItemId: "", unitId: "", quantity: "" }
+    { foodItemId: "", unitId: "", quantity: "", customIngredientName: "", isCustom: false }
   ],
   instructions: [
     { description: "" }
@@ -45,6 +47,7 @@ export function MyRecipesPanel({ searchQuery = "" }) {
 
   const [foodItems, setFoodItems] = useState([])
   const [units, setUnits] = useState([])
+  const [categories, setCategories] = useState([])
   const [optionsLoading, setOptionsLoading] = useState(false)
 
   const [confirmSubmit, setConfirmSubmit] = useState(null)
@@ -70,15 +73,17 @@ export function MyRecipesPanel({ searchQuery = "" }) {
   }
 
   const loadRecipeOptions = async () => {
-    if (foodItems.length > 0 && units.length > 0) return
+    if (foodItems.length > 0 && units.length > 0 && categories.length > 0) return
     try {
       setOptionsLoading(true)
-      const [foodRes, unitRes] = await Promise.all([
+      const [foodRes, unitRes, categoriesRes] = await Promise.all([
         getFoodItems(),
-        getUnits()
+        getUnits(),
+        getCategories()
       ])
       setFoodItems(foodRes.data?.foodItems || [])
       setUnits(unitRes.data?.units || [])
+      setCategories(categoriesRes.data?.categories || [])
     } catch (error) {
       console.error("Recipe options error:", error)
       showToast(error.message || "Không thể tải dữ liệu nguyên liệu", "error")
@@ -119,7 +124,19 @@ export function MyRecipesPanel({ searchQuery = "" }) {
   const updateIngredient = (index, field, value) => {
     setRecipeForm((prev) => {
       const ingredients = [...prev.ingredients]
-      ingredients[index] = { ...ingredients[index], [field]: value }
+      const updatedIngredient = { ...ingredients[index], [field]: value }
+      
+      // Nếu chọn "OTHER", set isCustom = true và clear foodItemId
+      if (field === 'foodItemId' && value === 'OTHER') {
+        updatedIngredient.isCustom = true
+        updatedIngredient.foodItemId = ""
+      } else if (field === 'foodItemId' && value !== 'OTHER') {
+        // Nếu chọn một foodItem khác, clear custom
+        updatedIngredient.isCustom = false
+        updatedIngredient.customIngredientName = ""
+      }
+      
+      ingredients[index] = updatedIngredient
       return { ...prev, ingredients }
     })
   }
@@ -127,7 +144,7 @@ export function MyRecipesPanel({ searchQuery = "" }) {
   const addIngredient = () => {
     setRecipeForm((prev) => ({
       ...prev,
-      ingredients: [...prev.ingredients, { foodItemId: "", unitId: "", quantity: "" }]
+      ingredients: [...prev.ingredients, { foodItemId: "", unitId: "", quantity: "", customIngredientName: "", isCustom: false }]
     }))
   }
 
@@ -164,46 +181,94 @@ export function MyRecipesPanel({ searchQuery = "" }) {
     event.preventDefault()
     setSubmitting(true)
 
-    const normalizedIngredients = recipeForm.ingredients
-      .filter((ing) => ing.foodItemId && ing.unitId && ing.quantity !== "")
-      .map((ing) => ({
-        foodItemId: ing.foodItemId,
-        unitId: ing.unitId,
-        quantity: Number(ing.quantity),
-        notes: ing.notes?.trim() || undefined
-      }))
-
+    // Validate
     if (!recipeForm.name.trim()) {
       showToast("Vui lòng nhập tên công thức", "warning")
       setSubmitting(false)
       return
     }
 
-    if (normalizedIngredients.length === 0) {
+    // Validate ingredients
+    const validIngredients = recipeForm.ingredients.filter((ing) => {
+      if (ing.isCustom) {
+        return ing.customIngredientName?.trim() && ing.unitId && ing.quantity !== ""
+      } else {
+        return ing.foodItemId && ing.unitId && ing.quantity !== ""
+      }
+    })
+
+    if (validIngredients.length === 0) {
       showToast("Vui lòng thêm ít nhất một nguyên liệu hợp lệ", "warning")
       setSubmitting(false)
       return
     }
 
-    const normalizedInstructions = recipeForm.instructions
-      .map((step) => step.description?.trim())
-      .filter((desc) => desc)
-      .map((desc, index) => ({ step: index + 1, description: desc }))
-
-    const payload = {
-      name: recipeForm.name.trim(),
-      description: recipeForm.description.trim(),
-      category: recipeForm.category.trim(),
-      difficulty: recipeForm.difficulty,
-      servings: Number(recipeForm.servings) || 0,
-      prepTime: Number(recipeForm.prepTime) || 0,
-      cookTime: Number(recipeForm.cookTime) || 0,
-      image: recipeForm.image?.trim() || null,
-      ingredients: normalizedIngredients,
-      instructions: normalizedInstructions
-    }
-
+    // Tạo FoodItem mới cho các custom ingredients
     try {
+      const normalizedIngredients = []
+      
+      for (const ing of validIngredients) {
+        let foodItemId = ing.foodItemId
+        
+        // Nếu là custom ingredient, tạo FoodItem mới
+        if (ing.isCustom && ing.customIngredientName?.trim()) {
+          // Lấy category đầu tiên hoặc category mặc định
+          const defaultCategory = categories[0]?._id || categories[0]?.id
+          const selectedUnit = units.find(u => (u._id || u.id) === ing.unitId)
+          
+          if (!defaultCategory || !selectedUnit) {
+            showToast("Vui lòng đảm bảo đã có danh mục và đơn vị trong hệ thống", "warning")
+            setSubmitting(false)
+            return
+          }
+
+          try {
+            const foodItemRes = await createFoodItem({
+              name: ing.customIngredientName.trim(),
+              categoryId: defaultCategory,
+              defaultUnit: ing.unitId,
+              description: `Nguyên liệu tùy chỉnh từ công thức "${recipeForm.name.trim()}"`
+            })
+            
+            if (foodItemRes.success) {
+              foodItemId = foodItemRes.data?.foodItem?._id || foodItemRes.data?.foodItem?.id
+            } else {
+              throw new Error(foodItemRes.message || "Không thể tạo nguyên liệu mới")
+            }
+          } catch (error) {
+            console.error("Error creating custom food item:", error)
+            showToast(`Không thể tạo nguyên liệu "${ing.customIngredientName}": ${error.message || "Lỗi không xác định"}`, "error")
+            setSubmitting(false)
+            return
+          }
+        }
+        
+        normalizedIngredients.push({
+          foodItemId: foodItemId,
+          unitId: ing.unitId,
+          quantity: Number(ing.quantity),
+          notes: ing.notes?.trim() || undefined
+        })
+      }
+
+      const normalizedInstructions = recipeForm.instructions
+        .map((step) => step.description?.trim())
+        .filter((desc) => desc)
+        .map((desc, index) => ({ step: index + 1, description: desc }))
+
+      const payload = {
+        name: recipeForm.name.trim(),
+        description: recipeForm.description.trim(),
+        category: recipeForm.category.trim(),
+        difficulty: recipeForm.difficulty,
+        servings: Number(recipeForm.servings) || 0,
+        prepTime: Number(recipeForm.prepTime) || 0,
+        cookTime: Number(recipeForm.cookTime) || 0,
+        image: recipeForm.image?.trim() || null,
+        ingredients: normalizedIngredients,
+        instructions: normalizedInstructions
+      }
+
       const response = await createRecipe(payload)
       if (!response?.success) {
         throw new Error(response?.message || "Không thể tạo công thức")
@@ -479,16 +544,38 @@ export function MyRecipesPanel({ searchQuery = "" }) {
                 <div key={`ingredient-${index}`} className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto] items-end">
                   <div className="space-y-2">
                     <Label>Nguyên liệu</Label>
-                    <select
-                      value={ingredient.foodItemId}
-                      onChange={(e) => updateIngredient(index, "foodItemId", e.target.value)}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      <option value="">Chọn nguyên liệu</option>
-                      {foodItems.map((item) => (
-                        <option key={item._id} value={item._id}>{item.name}</option>
-                      ))}
-                    </select>
+                    {ingredient.isCustom ? (
+                      <Input
+                        type="text"
+                        placeholder="Nhập tên nguyên liệu"
+                        value={ingredient.customIngredientName || ""}
+                        onChange={(e) => updateIngredient(index, "customIngredientName", e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      />
+                    ) : (
+                      <select
+                        value={ingredient.foodItemId}
+                        onChange={(e) => updateIngredient(index, "foodItemId", e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">Chọn nguyên liệu</option>
+                        {foodItems.map((item) => (
+                          <option key={item._id} value={item._id}>{item.name}</option>
+                        ))}
+                        <option value="OTHER">Khác (Nhập tên)</option>
+                      </select>
+                    )}
+                    {ingredient.isCustom && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => updateIngredient(index, "foodItemId", "")}
+                        className="text-xs text-muted-foreground h-6 px-2"
+                      >
+                        ← Chọn từ danh sách
+                      </Button>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Số lượng</Label>

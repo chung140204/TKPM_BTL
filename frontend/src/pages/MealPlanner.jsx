@@ -790,7 +790,8 @@ export function MealPlanner() {
         onClose={() => setShowSmartSuggestConfirm(false)}
         onConfirm={confirmSmartSuggest}
         title="Đề xuất bữa ăn thông minh"
-        message="Tính năng này sẽ tự động đề xuất bữa ăn dựa trên thực phẩm hiện có trong tủ lạnh.\n\nCác bữa ăn đã được lên kế hoạch sẽ không bị thay đổi.\n\nBạn có muốn tiếp tục?"
+        message="Tính năng này sẽ tự động đề xuất bữa ăn dựa trên thực phẩm hiện có trong tủ lạnh.
+        Các bữa ăn đã được lên kế hoạch sẽ không bị thay đổi. Bạn có muốn tiếp tục?"
         confirmText="Tiếp tục"
         cancelText="Hủy"
         variant="default"

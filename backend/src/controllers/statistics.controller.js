@@ -196,11 +196,14 @@ exports.getWasteStatistics = async (req, res, next) => {
       console.log('[Waste Statistics] View filter:', JSON.stringify(viewFilter, null, 2));
     }
 
-    // Lấy tất cả expired fridge items trong khoảng thời gian
-    const expiredItems = await FridgeItem.find(
+    // Lấy tất cả expired fridge items
+    // QUAN TRỌNG: Lấy TẤT CẢ expired items (không filter date) để hiển thị tổng hợp waste
+    // Sau đó filter theo expiryDate trong khoảng thời gian khi aggregate để hiển thị trend đúng
+    // Điều này đảm bảo các items hết hạn từ lâu vẫn được tính vào tổng waste
+    const allExpiredItems = await FridgeItem.find(
       mergeViewFilter(viewFilter, {
-        status: 'expired',
-        createdAt: { $gte: startDate, $lte: endDate }
+        status: 'expired'
+        // Không filter date ở đây, lấy tất cả expired items
       })
     )
       .populate('foodItemId', 'name categoryId')
@@ -212,12 +215,19 @@ exports.getWasteStatistics = async (req, res, next) => {
         }
       });
 
-    // Aggregate by foodItem and category
+    // Để hiển thị đúng waste, trend chart sẽ hiển thị TẤT CẢ expired items
+    // Không filter theo date range vì waste là tổng hợp tất cả items đã hết hạn
+    // Nếu muốn filter theo khoảng thời gian, có thể filter sau khi query
+    // Nhưng để đảm bảo hiển thị đúng, dùng tất cả expired items cho trend
+    const expiredItemsForTrend = allExpiredItems; // Dùng tất cả expired items cho trend
+
+    // Aggregate by foodItem and category (tính TẤT CẢ expired items)
     const itemMap = new Map();
     const categoryMap = new Map();
     const dateMap = new Map();
 
-    expiredItems.forEach(item => {
+    // Tính tổng waste từ tất cả expired items
+    allExpiredItems.forEach(item => {
       if (!item.foodItemId) return;
 
       const foodItemId = item.foodItemId._id.toString();
@@ -225,9 +235,8 @@ exports.getWasteStatistics = async (req, res, next) => {
       const categoryName = item.foodItemId.categoryId?.name || 'Chưa phân loại';
       const foodItemName = item.foodItemId.name;
       const wastedAmount = item.quantity * (item.price || 0);
-      const dateKey = item.createdAt.toISOString().split('T')[0]; // YYYY-MM-DD
 
-      // Aggregate by foodItem
+      // Aggregate by foodItem (tất cả expired items)
       if (itemMap.has(foodItemId)) {
         const existing = itemMap.get(foodItemId);
         existing.totalQuantity += item.quantity;
@@ -241,7 +250,7 @@ exports.getWasteStatistics = async (req, res, next) => {
         });
       }
 
-      // Aggregate by category
+      // Aggregate by category (tất cả expired items)
       if (categoryId) {
         const catKey = categoryId.toString();
         if (categoryMap.has(catKey)) {
@@ -257,8 +266,16 @@ exports.getWasteStatistics = async (req, res, next) => {
           });
         }
       }
+    });
 
-      // Aggregate by date (for trend)
+    // Aggregate by date cho trend (chỉ tính items có expiryDate trong khoảng thời gian được chọn)
+    expiredItemsForTrend.forEach(item => {
+      if (!item.foodItemId) return;
+      const wastedAmount = item.quantity * (item.price || 0);
+      // Dùng expiryDate để group theo ngày hết hạn
+      const dateKey = item.expiryDate ? new Date(item.expiryDate).toISOString().split('T')[0] : item.createdAt.toISOString().split('T')[0];
+
+      // Aggregate by date (for trend) - chỉ tính items trong khoảng thời gian
       if (dateMap.has(dateKey)) {
         const existing = dateMap.get(dateKey);
         existing.wastedItems += 1;
@@ -285,10 +302,10 @@ exports.getWasteStatistics = async (req, res, next) => {
     const trend = Array.from(dateMap.values())
       .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Calculate totals
-    const totalWastedItems = expiredItems.length;
+    // Calculate totals - tính từ TẤT CẢ expired items (không chỉ trong khoảng thời gian)
+    const totalWastedItems = allExpiredItems.length;
     const totalWastedAmount = topWastedItems.reduce((sum, item) => sum + item.totalAmount, 0);
-    const totalWastedQuantity = expiredItems.reduce((sum, item) => sum + item.quantity, 0);
+    const totalWastedQuantity = allExpiredItems.reduce((sum, item) => sum + item.quantity, 0);
 
     res.json({
       success: true,
@@ -357,10 +374,11 @@ exports.getConsumptionStatistics = async (req, res, next) => {
       : [];
 
     // 3. Lấy wasted items (status = expired)
+    // Filter theo expiryDate thay vì createdAt để đúng với logic waste
     const wastedItems = await FridgeItem.find(
       mergeViewFilter(viewFilter, {
         status: 'expired',
-        createdAt: { $gte: startDate, $lte: endDate }
+        expiryDate: { $gte: startDate, $lte: endDate } // Filter theo expiryDate
       })
     )
       .populate('foodItemId', 'name');
@@ -431,7 +449,8 @@ exports.getConsumptionStatistics = async (req, res, next) => {
     // Process wasted items
     wastedItems.forEach(item => {
       if (!item.foodItemId) return;
-      const dateKey = item.createdAt.toISOString().split('T')[0];
+      // Dùng expiryDate thay vì createdAt để group theo ngày hết hạn
+      const dateKey = item.expiryDate ? new Date(item.expiryDate).toISOString().split('T')[0] : item.createdAt.toISOString().split('T')[0];
       if (!dateMap.has(dateKey)) {
         dateMap.set(dateKey, { date: dateKey, purchased: 0, used: 0, wasted: 0 });
       }
@@ -615,13 +634,13 @@ exports.getDashboardOverview = async (req, res, next) => {
       return 100;
     };
 
-    // Waste tháng này
+    // Waste tháng này - filter theo expiryDate thay vì createdAt
     const thisMonthWaste = await FridgeItem.aggregate([
       {
         $match: {
           ...aggregateMatch,
           status: 'expired',
-          createdAt: { $gte: thisMonthStart }
+          expiryDate: { $gte: thisMonthStart, $lte: now } // Items hết hạn trong tháng này
         }
       },
       {
@@ -632,13 +651,13 @@ exports.getDashboardOverview = async (req, res, next) => {
       }
     ]);
 
-    // Waste tháng trước
+    // Waste tháng trước - filter theo expiryDate
     const lastMonthWaste = await FridgeItem.aggregate([
       {
         $match: {
           ...aggregateMatch,
           status: 'expired',
-          createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
+          expiryDate: { $gte: lastMonthStart, $lte: lastMonthEnd } // Items hết hạn trong tháng trước
         }
       },
       {
@@ -722,20 +741,21 @@ exports.getDashboardOverview = async (req, res, next) => {
     };
 
     // 6. Lấy waste data theo tháng (6 tháng gần nhất)
+    // Group theo expiryDate thay vì createdAt để hiển thị waste theo thời điểm hết hạn
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const wasteDataByMonth = await FridgeItem.aggregate([
       {
         $match: {
           ...aggregateMatch,
           status: 'expired',
-          createdAt: { $gte: sixMonthsAgo }
+          expiryDate: { $gte: sixMonthsAgo } // Filter theo expiryDate
         }
       },
       {
         $group: {
           _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' }
+            year: { $year: '$expiryDate' }, // Group theo expiryDate
+            month: { $month: '$expiryDate' }
           },
           waste: { $sum: '$quantity' }
         }

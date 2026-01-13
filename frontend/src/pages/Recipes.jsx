@@ -2,29 +2,29 @@ import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Badge } from "@/components/ui/Badge"
 import { Button } from "@/components/ui/Button"
-import { Heart, ChefHat, Clock, Users, CheckCircle2, XCircle } from "lucide-react"
+import { Heart, ChefHat, Clock, Users, CheckCircle2, XCircle, Utensils } from "lucide-react"
 import { useSearch } from "@/components/Layout/MainLayout"
 import { RecipeDetailDialog } from "@/components/RecipeDetailDialog"
 import { IngredientFilter } from "@/components/IngredientFilter"
 import { MyRecipesPanel } from "@/components/MyRecipesPanel"
 import { useAuth } from "@/contexts/AuthContext"
-import { getFridgeItems, getSuggestedRecipes } from "@/utils/api"
+import { getFridgeItems, getSuggestedRecipes, toggleFavoriteRecipe, apiRequest, checkRecipeIngredients, getMe } from "@/utils/api"
 import { mockRecipes } from "@/data/mockData"
 import { ROLES } from "@/utils/roles"
 
 export function Recipes() {
   const searchQuery = useSearch() || ""
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const isHomemaker = user?.role === ROLES.HOMEMAKER
   const [activeTab, setActiveTab] = useState("suggested")
   const [fridgeItems, setFridgeItems] = useState([])
   const [recipes, setRecipes] = useState([])
-  const [favorites, setFavorites] = useState([])
   const [selectedRecipe, setSelectedRecipe] = useState(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [selectedIngredients, setSelectedIngredients] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [togglingFavorite, setTogglingFavorite] = useState(null) // Loading lock for favorite toggle
 
   useEffect(() => {
     if (!isHomemaker && activeTab === "mine") {
@@ -132,14 +132,120 @@ export function Recipes() {
     }
   }
 
+  // Get favorite recipe IDs from context (single source of truth)
+  const favoriteIds = useMemo(() => {
+    return (user?.preferences?.favoriteRecipes || []).map(
+      recipe => recipe._id || recipe.id || recipe
+    )
+  }, [user?.preferences?.favoriteRecipes])
+
+  // Load favorite recipes details - fetch full recipe data for favorite IDs
+  const [favoriteRecipesData, setFavoriteRecipesData] = useState([])
+  const [favoritesLoading, setFavoritesLoading] = useState(false)
+
+  const fetchFavoriteRecipes = async () => {
+    if (favoriteIds.length === 0) {
+      setFavoriteRecipesData([])
+      setFavoritesLoading(false)
+      return
+    }
+
+    try {
+      setFavoritesLoading(true)
+
+      // Fetch details for each favorite recipe and check ingredients
+      const recipePromises = favoriteIds.map(async (recipeId) => {
+        try {
+          const [recipeRes, ingredientsRes] = await Promise.all([
+            apiRequest(`/recipes/${recipeId}`),
+            checkRecipeIngredients(recipeId).catch(() => ({ success: false }))
+          ])
+          
+          if (recipeRes.success && recipeRes.data?.recipe) {
+            const recipe = normalizeRecipe(recipeRes.data.recipe)
+            
+            // Add match percentage and ingredient availability from check-ingredients API
+            if (ingredientsRes.success && ingredientsRes.data) {
+              const data = ingredientsRes.data
+              recipe.matchPercentage = data.matchPercentage || 0
+              recipe.availableIngredients = (data.availableIngredients || []).map(ing => normalizeIngredient(ing, false))
+              recipe.missingIngredients = (data.missingIngredients || []).map(ing => normalizeIngredient(ing, true))
+            }
+            
+            return recipe
+          }
+          return null
+        } catch (error) {
+          console.error(`Error fetching recipe ${recipeId}:`, error)
+          return null
+        }
+      })
+
+      const fetchedRecipes = await Promise.all(recipePromises)
+      const validRecipes = fetchedRecipes.filter(recipe => recipe !== null)
+      
+      // Also get fridge items
+      const fridgeRes = await getFridgeItems()
+      const fetchedFridge = fridgeRes.data?.fridgeItems || []
+
+      setFavoriteRecipesData(validRecipes)
+      setFridgeItems(fetchedFridge)
+    } catch (error) {
+      console.error("Error fetching favorite recipes:", error)
+      setFavoriteRecipesData([])
+    } finally {
+      setFavoritesLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === "favorites") {
+      fetchFavoriteRecipes()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, favoriteIds.length, user?.preferences?.favoriteRecipes])
+
   useEffect(() => {
     fetchRecipesAndFridge()
   }, [])
 
-  const toggleFavorite = (id) => {
-    setFavorites(prev =>
-      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
-    )
+  const toggleFavorite = async (id) => {
+    // Prevent double-click race condition
+    if (togglingFavorite === id) {
+      return
+    }
+
+    try {
+      setTogglingFavorite(id)
+      
+      // Check current state from context (single source of truth)
+      const isCurrentlyFavorite = favoriteIds.includes(id)
+
+      // Call API to toggle favorite
+      const response = await toggleFavoriteRecipe(id)
+      
+      if (!response.success) {
+        console.error('Failed to toggle favorite:', response.message)
+        return
+      }
+
+      // After API success, fetch updated user data from server
+      const userRes = await getMe()
+      
+      if (userRes.success && userRes.data?.user) {
+        // Update AuthContext with fresh user data (single source of truth)
+        updateUser(userRes.data.user)
+        
+        // The favoriteRecipesData will automatically update via useEffect
+        // when favoriteIds changes (derived from updated user context)
+      } else {
+        console.error('Failed to fetch updated user data')
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error)
+    } finally {
+      setTogglingFavorite(null)
+    }
   }
 
   const handleViewRecipe = (recipe) => {
@@ -213,9 +319,15 @@ export function Recipes() {
     setSelectedIngredients([])
   }
 
-  const headerTitle = activeTab === "mine" ? "Món ăn của tôi" : "Gợi ý món ăn thông minh"
+  const headerTitle = activeTab === "mine" 
+    ? "Món ăn của tôi" 
+    : activeTab === "favorites"
+    ? "Món ăn yêu thích"
+    : "Gợi ý món ăn thông minh"
   const headerDescription = activeTab === "mine"
     ? "Tạo và quản lý món ăn của riêng bạn trước khi gửi lên hệ thống."
+    : activeTab === "favorites"
+    ? "Danh sách các món ăn bạn đã yêu thích"
     : "Các món ăn được gợi ý dựa trên thực phẩm trong tủ lạnh của bạn"
 
   return (
@@ -227,26 +339,186 @@ export function Recipes() {
             {headerDescription}
           </p>
         </div>
-        {isHomemaker && (
-          <div className="flex items-center gap-2">
-            <Button
-              variant={activeTab === "suggested" ? "default" : "outline"}
-              onClick={() => setActiveTab("suggested")}
-            >
-              Gợi ý
-            </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={activeTab === "suggested" ? "default" : "outline"}
+            onClick={() => setActiveTab("suggested")}
+          >
+            Gợi ý
+          </Button>
+          <Button
+            variant={activeTab === "favorites" ? "default" : "outline"}
+            onClick={() => setActiveTab("favorites")}
+          >
+            Món ăn yêu thích
+          </Button>
+          {isHomemaker && (
             <Button
               variant={activeTab === "mine" ? "default" : "outline"}
               onClick={() => setActiveTab("mine")}
             >
               Món ăn của tôi
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {activeTab === "mine" ? (
         <MyRecipesPanel searchQuery={searchQuery} />
+      ) : activeTab === "favorites" ? (
+        <>
+          {favoritesLoading ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">Đang tải danh sách món ăn yêu thích...</p>
+            </div>
+          ) : favoriteRecipesData.length === 0 && favoriteIds.length === 0 ? (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <Heart className="h-16 w-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                <h3 className="text-xl font-semibold mb-2">Chưa có món ăn yêu thích</h3>
+                <p className="text-muted-foreground mb-4">
+                  Bạn chưa yêu thích món ăn nào. Hãy click vào icon tim trên các món ăn để thêm vào danh sách yêu thích.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => setActiveTab("suggested")}
+                >
+                  Xem gợi ý món ăn
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+              {favoriteRecipesData
+                .filter(recipe => 
+                  !searchQuery || 
+                  recipe.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  recipe.description.toLowerCase().includes(searchQuery.toLowerCase())
+                )
+                .map((recipe) => {
+                  const getMatchColor = (percentage) => {
+                    if (percentage >= 80) return "bg-green-500 text-white"
+                    if (percentage >= 50) return "bg-yellow-500 text-white"
+                    return "bg-red-500 text-white"
+                  }
+
+                  return (
+                    <Card 
+                      key={recipe.id} 
+                      className="overflow-hidden hover:shadow-2xl transition-all duration-300 border-0 shadow-lg hover:-translate-y-1"
+                    >
+                      {/* Image Section */}
+                      <div className="relative h-56 w-full overflow-hidden bg-gradient-to-br from-primary/10 to-secondary/10">
+                        <img
+                          src={recipe.image}
+                          alt={recipe.name}
+                          className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                        />
+                        
+                        {/* Favorite Button */}
+                        <div className="absolute top-4 right-4">
+                          <button
+                            onClick={() => toggleFavorite(recipe.id)}
+                            disabled={togglingFavorite === recipe.id}
+                            className="rounded-full bg-background/90 backdrop-blur-sm p-2.5 shadow-lg hover:bg-background transition-all hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Heart
+                              className={`h-5 w-5 fill-red-500 text-red-500`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Match Percentage Badge */}
+                        <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2">
+                          <div className={`rounded-full px-4 py-2 shadow-lg backdrop-blur-sm ${getMatchColor(recipe.matchPercentage || 0)}`}>
+                            <span className="text-sm font-semibold">{recipe.matchPercentage || 0}%</span>
+                            <span className="text-xs ml-1 opacity-90">khớp</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Content Section */}
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-xl font-bold leading-tight line-clamp-2 mb-2">
+                          {recipe.name}
+                        </CardTitle>
+                        <CardDescription className="text-sm line-clamp-2">
+                          {recipe.description}
+                        </CardDescription>
+                      </CardHeader>
+
+                      <CardContent className="space-y-4 pt-0">
+                        {/* Recipe Meta Info */}
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground pb-3 border-b">
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-4 w-4" />
+                            <span>{(recipe.prepTime || 0) + (recipe.cookTime || 0)} phút</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Users className="h-4 w-4" />
+                            <span>{recipe.servings || 0} người</span>
+                          </div>
+                          <Badge variant="outline" className="text-xs">
+                            {recipe.difficulty || "medium"}
+                          </Badge>
+                        </div>
+
+                        {/* Available Ingredients */}
+                        {recipe.availableIngredients && recipe.availableIngredients.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-green-600">Nguyên liệu có sẵn:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {recipe.availableIngredients.slice(0, 3).map((ing, idx) => (
+                                <Badge key={idx} variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                                  {ing.name}
+                                </Badge>
+                              ))}
+                              {recipe.availableIngredients.length > 3 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{recipe.availableIngredients.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Missing Ingredients */}
+                        {recipe.missingIngredients && recipe.missingIngredients.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-red-600">Còn thiếu:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {recipe.missingIngredients.slice(0, 3).map((ing, idx) => (
+                                <Badge key={idx} variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
+                                  <XCircle className="h-3 w-3 mr-1" />
+                                  {ing.name}
+                                </Badge>
+                              ))}
+                              {recipe.missingIngredients.length > 3 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{recipe.missingIngredients.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* View Recipe Button */}
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => handleViewRecipe(recipe)}
+                        >
+                          <Utensils className="h-4 w-4 mr-2" />
+                          Xem công thức
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+            </div>
+          )}
+        </>
       ) : (
         <>
           {/* Highlight Banner */}
@@ -339,11 +611,12 @@ export function Recipes() {
                       <div className="absolute top-4 right-4">
                         <button
                           onClick={() => toggleFavorite(recipe.id)}
-                          className="rounded-full bg-background/90 backdrop-blur-sm p-2.5 shadow-lg hover:bg-background transition-all hover:scale-110"
+                          disabled={togglingFavorite === recipe.id}
+                          className="rounded-full bg-background/90 backdrop-blur-sm p-2.5 shadow-lg hover:bg-background transition-all hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Heart
                             className={`h-5 w-5 ${
-                              favorites.includes(recipe.id)
+                              favoriteIds.includes(recipe.id)
                                 ? "fill-red-500 text-red-500"
                                 : "text-muted-foreground hover:text-red-500"
                             }`}

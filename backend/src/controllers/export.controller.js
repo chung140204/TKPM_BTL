@@ -1,6 +1,6 @@
 /**
  * Export Controller
- * Controller để xuất báo cáo CSV và PDF
+ * Controller để xuất báo cáo CSV
  * Sử dụng lại logic từ statistics.controller.js (không thay đổi code hiện tại)
  */
 
@@ -13,7 +13,6 @@ const Category = require('../models/Category.model');
 const ConsumptionLog = require('../models/ConsumptionLog.model');
 const { buildViewFilter, buildAggregateMatch, mergeViewFilter } = require('../utils/view');
 const csvExport = require('../utils/csvExport');
-const pdfExport = require('../utils/pdfExport');
 
 // Helper function để tính date range (copy từ statistics.controller.js)
 const getDateRange = (period, offset = 0) => {
@@ -133,10 +132,11 @@ const getWasteStatisticsData = async (req) => {
   const { startDate, endDate } = getDateRange(period, offset);
   const viewFilter = buildViewFilter(req);
 
+  // Filter theo expiryDate thay vì createdAt để đúng với logic waste
   const expiredItems = await FridgeItem.find(
     mergeViewFilter(viewFilter, {
       status: 'expired',
-      createdAt: { $gte: startDate, $lte: endDate }
+      expiryDate: { $gte: startDate, $lte: endDate } // Filter theo expiryDate
     })
   )
     .populate('foodItemId', 'name categoryId')
@@ -154,7 +154,8 @@ const getWasteStatisticsData = async (req) => {
     const categoryName = item.foodItemId.categoryId?.name || 'Chưa phân loại';
     const foodItemName = item.foodItemId.name;
     const wastedAmount = item.quantity * (item.price || 0);
-    const dateKey = item.createdAt.toISOString().split('T')[0];
+    // Dùng expiryDate để group theo ngày hết hạn (đã được filter ở trên)
+    const dateKey = item.expiryDate ? new Date(item.expiryDate).toISOString().split('T')[0] : item.createdAt.toISOString().split('T')[0];
 
     if (itemMap.has(foodItemId)) {
       const existing = itemMap.get(foodItemId);
@@ -429,25 +430,6 @@ exports.exportPurchaseStatisticsCSV = async (req, res, next) => {
   }
 };
 
-exports.exportPurchaseStatisticsPDF = async (req, res, next) => {
-  try {
-    const data = await getPurchaseStatisticsData(req);
-    const doc = pdfExport.exportPurchaseStatistics(data);
-    const period = req.query.period || 'month';
-    const filename = `bao-cao-mua-sam-${period}-${Date.now()}.pdf`;
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    doc.pipe(res);
-  } catch (error) {
-    console.error('Error in exportPurchaseStatisticsPDF:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Lỗi khi xuất báo cáo PDF',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
 exports.exportWasteStatisticsCSV = async (req, res, next) => {
   try {
     const data = await getWasteStatisticsData(req);
@@ -462,25 +444,6 @@ exports.exportWasteStatisticsCSV = async (req, res, next) => {
     res.status(500).json({
       success: false,
       message: 'Lỗi khi xuất báo cáo CSV',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
-exports.exportWasteStatisticsPDF = async (req, res, next) => {
-  try {
-    const data = await getWasteStatisticsData(req);
-    const doc = pdfExport.exportWasteStatistics(data);
-    const period = req.query.period || 'month';
-    const filename = `bao-cao-lang-phi-${period}-${Date.now()}.pdf`;
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    doc.pipe(res);
-  } catch (error) {
-    console.error('Error in exportWasteStatisticsPDF:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Lỗi khi xuất báo cáo PDF',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -542,20 +505,3 @@ exports.exportDashboardOverviewCSV = async (req, res, next) => {
   }
 };
 
-exports.exportDashboardOverviewPDF = async (req, res, next) => {
-  try {
-    const data = await getDashboardOverviewData(req);
-    const doc = pdfExport.exportDashboardOverview(data);
-    const filename = `bao-cao-dashboard-${Date.now()}.pdf`;
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    doc.pipe(res);
-  } catch (error) {
-    console.error('Error in exportDashboardOverviewPDF:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Lỗi khi xuất báo cáo PDF',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};

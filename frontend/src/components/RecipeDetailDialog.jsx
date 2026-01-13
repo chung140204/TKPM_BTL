@@ -406,7 +406,7 @@ export function RecipeDetailDialog({ isOpen, onClose, recipe, onCook }) {
       onClose={() => setShowCookConfirm(false)}
       onConfirm={confirmCook}
       title="Xác nhận nấu món"
-      message="Điều này sẽ trừ nguyên liệu từ tủ lạnh của bạn.\n\nBạn có muốn tiếp tục?"
+      message="Điều này sẽ trừ nguyên liệu từ tủ lạnh của bạn. Bạn có muốn tiếp tục?"
       confirmText="Tiếp tục"
       cancelText="Hủy"
       variant="default"

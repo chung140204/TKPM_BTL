@@ -143,7 +143,6 @@ export function CreateShoppingListDialog({
     if (!initialList) {
       setListName("")
       setPlannedDate(getTodayDate())
-      setFamilyGroupId("")
       setItems([
         {
           id: Date.now(),

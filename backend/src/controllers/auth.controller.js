@@ -146,8 +146,25 @@ exports.login = async (req, res, next) => {
       });
     }
 
+    // Populate favoriteRecipes
+    await user.populate('preferences.favoriteRecipes', 'name image');
+
     // Generate token
     const token = generateToken(user._id);
+
+    // Set secure HTTP-only cookie if enabled
+    const useSecureCookies = process.env.USE_SECURE_COOKIES === 'true';
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (useSecureCookies) {
+      res.cookie('authToken', token, {
+        httpOnly: true, // Prevent XSS attacks
+        secure: isProduction, // Only send over HTTPS in production
+        sameSite: 'strict', // CSRF protection
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days (matches JWT expiration)
+        path: '/'
+      });
+    }
 
     res.json({
       success: true,
@@ -159,7 +176,8 @@ exports.login = async (req, res, next) => {
           email: user.email,
           fullName: user.fullName,
           role: user.role,
-          familyGroupId: user.familyGroupId
+          familyGroupId: user.familyGroupId,
+          preferences: user.preferences
         }
       }
     });
@@ -207,7 +225,6 @@ exports.getMe = async (req, res, next) => {
  */
 exports.logout = async (req, res, next) => {
   try {
-    // Trong tương lai có thể implement token blacklist
     res.json({
       success: true,
       message: 'Đăng xuất thành công'

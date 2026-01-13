@@ -1060,3 +1060,88 @@ exports.cookRecipe = async (req, res, next) => {
     });
   }
 };
+
+/**
+ * @desc    Toggle favorite recipe (thêm/xóa món ăn yêu thích)
+ * @route   POST /api/recipes/:id/toggle-favorite
+ * @access  Private
+ */
+exports.toggleFavorite = async (req, res, next) => {
+  try {
+    const recipeId = req.params.id;
+    const userId = req.user.id;
+
+    // Kiểm tra recipe có tồn tại không
+    const recipe = await Recipe.findById(recipeId);
+    if (!recipe) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy món ăn'
+      });
+    }
+
+    // Lấy user với preferences
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy người dùng'
+      });
+    }
+
+    // Kiểm tra recipe đã có trong favorites chưa
+    const favoriteRecipes = user.preferences?.favoriteRecipes || [];
+    const isFavorite = favoriteRecipes.some(
+      id => id.toString() === recipeId.toString()
+    );
+
+    let updatedUser;
+    let updatedRecipe;
+    let action;
+
+    if (isFavorite) {
+      // Xóa khỏi favorites
+      user.preferences = user.preferences || {};
+      user.preferences.favoriteRecipes = favoriteRecipes.filter(
+        id => id.toString() !== recipeId.toString()
+      );
+      updatedUser = await user.save();
+
+      // Giảm favoriteCount
+      recipe.favoriteCount = Math.max(0, (recipe.favoriteCount || 0) - 1);
+      updatedRecipe = await recipe.save();
+      action = 'removed';
+    } else {
+      // Thêm vào favorites
+      user.preferences = user.preferences || {};
+      if (!user.preferences.favoriteRecipes) {
+        user.preferences.favoriteRecipes = [];
+      }
+      user.preferences.favoriteRecipes.push(recipeId);
+      updatedUser = await user.save();
+
+      // Tăng favoriteCount
+      recipe.favoriteCount = (recipe.favoriteCount || 0) + 1;
+      updatedRecipe = await recipe.save();
+      action = 'added';
+    }
+
+    // Populate favoriteRecipes để trả về đầy đủ thông tin
+    await updatedUser.populate('preferences.favoriteRecipes', 'name image');
+
+    res.json({
+      success: true,
+      message: action === 'added' 
+        ? 'Đã thêm vào món ăn yêu thích' 
+        : 'Đã xóa khỏi món ăn yêu thích',
+      data: {
+        isFavorite: !isFavorite,
+        favoriteCount: updatedRecipe.favoriteCount,
+        favoriteRecipes: updatedUser.preferences?.favoriteRecipes || []
+      }
+    });
+  } catch (error) {
+    console.error('Error in toggleFavorite:', error);
+    next(error);
+  }
+};

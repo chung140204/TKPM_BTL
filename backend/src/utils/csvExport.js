@@ -6,6 +6,19 @@
 const { stringify } = require('csv-stringify/sync');
 
 /**
+ * Helper function để làm tròn số
+ * @param {number} value - Giá trị cần làm tròn
+ * @param {number} decimals - Số chữ số thập phân (mặc định: 2)
+ * @returns {number} - Số đã được làm tròn
+ */
+const roundNumber = (value, decimals = 2) => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0;
+  }
+  return Math.round(value * Math.pow(10, decimals)) / Math.pow(10, decimals);
+};
+
+/**
  * Xuất dữ liệu thống kê mua sắm ra CSV
  */
 exports.exportPurchaseStatistics = (data) => {
@@ -15,19 +28,17 @@ exports.exportPurchaseStatistics = (data) => {
   rows.push(['BÁO CÁO THỐNG KÊ MUA SẮM']);
   rows.push([]);
   rows.push(['Kỳ báo cáo', data.period || 'month']);
-  rows.push(['Tổng số lượng (kg)', data.totalItems || 0]);
-  rows.push(['Tổng số tiền (VNĐ)', data.totalAmount || 0]);
+  rows.push(['Tổng số lượng (kg)', roundNumber(data.totalItems || 0)]);
   rows.push([]);
   
   // Top items
   if (data.topItems && data.topItems.length > 0) {
     rows.push(['TOP THỰC PHẨM MUA NHIỀU NHẤT']);
-    rows.push(['Tên thực phẩm', 'Số lượng (kg)', 'Tổng tiền (VNĐ)']);
+    rows.push(['Tên thực phẩm', 'Số lượng (kg)']);
     data.topItems.forEach(item => {
       rows.push([
         item.foodItemName || 'N/A',
-        item.totalQuantity || 0,
-        item.totalAmount || 0
+        roundNumber(item.totalQuantity || 0)
       ]);
     });
     rows.push([]);
@@ -36,12 +47,11 @@ exports.exportPurchaseStatistics = (data) => {
   // By category
   if (data.byCategory && data.byCategory.length > 0) {
     rows.push(['PHÂN BỐ THEO DANH MỤC']);
-    rows.push(['Danh mục', 'Số lượng (kg)', 'Tổng tiền (VNĐ)']);
+    rows.push(['Danh mục', 'Số lượng (kg)']);
     data.byCategory.forEach(cat => {
       rows.push([
         cat.categoryName || 'Chưa phân loại',
-        cat.totalQuantity || 0,
-        cat.totalAmount || 0
+        roundNumber(cat.totalQuantity || 0)
       ]);
     });
   }
@@ -61,19 +71,17 @@ exports.exportWasteStatistics = (data) => {
   rows.push(['BÁO CÁO THỐNG KÊ LÃNG PHÍ']);
   rows.push([]);
   rows.push(['Tổng số items lãng phí', data.totalWastedItems || 0]);
-  rows.push(['Tổng số lượng lãng phí (kg)', data.totalWastedQuantity || 0]);
-  rows.push(['Tổng giá trị lãng phí (VNĐ)', data.totalWastedAmount || 0]);
+  rows.push(['Tổng số lượng lãng phí (kg)', roundNumber(data.totalWastedQuantity || 0)]);
   rows.push([]);
   
   // Top wasted items
   if (data.topWastedItems && data.topWastedItems.length > 0) {
     rows.push(['TOP THỰC PHẨM LÃNG PHÍ NHIỀU NHẤT']);
-    rows.push(['Tên thực phẩm', 'Số lượng (kg)', 'Giá trị (VNĐ)']);
+    rows.push(['Tên thực phẩm', 'Số lượng (kg)']);
     data.topWastedItems.forEach(item => {
       rows.push([
         item.foodItemName || 'N/A',
-        item.totalQuantity || 0,
-        item.totalAmount || 0
+        roundNumber(item.totalQuantity || 0)
       ]);
     });
     rows.push([]);
@@ -82,12 +90,11 @@ exports.exportWasteStatistics = (data) => {
   // By category
   if (data.byCategory && data.byCategory.length > 0) {
     rows.push(['LÃNG PHÍ THEO DANH MỤC']);
-    rows.push(['Danh mục', 'Số lượng (kg)', 'Giá trị (VNĐ)']);
+    rows.push(['Danh mục', 'Số lượng (kg)']);
     data.byCategory.forEach(cat => {
       rows.push([
         cat.categoryName || 'Chưa phân loại',
-        cat.totalQuantity || 0,
-        cat.totalAmount || 0
+        roundNumber(cat.totalQuantity || 0)
       ]);
     });
     rows.push([]);
@@ -96,13 +103,12 @@ exports.exportWasteStatistics = (data) => {
   // Trend
   if (data.trend && data.trend.length > 0) {
     rows.push(['XU HƯỚNG LÃNG PHÍ THEO THỜI GIAN']);
-    rows.push(['Ngày', 'Số items', 'Số lượng (kg)', 'Giá trị (VNĐ)']);
+    rows.push(['Ngày', 'Số items', 'Số lượng (kg)']);
     data.trend.forEach(item => {
       rows.push([
         item.date || 'N/A',
         item.wastedItems || 0,
-        item.totalQuantity || 0,
-        item.wastedAmount || 0
+        roundNumber(item.totalQuantity || 0)
       ]);
     });
   }
@@ -121,7 +127,7 @@ exports.exportConsumptionStatistics = (data) => {
   
   rows.push(['BÁO CÁO THỐNG KÊ TIÊU THỤ']);
   rows.push([]);
-  rows.push(['Tỷ lệ lãng phí (%)', data.wasteRate || 0]);
+  rows.push(['Tỷ lệ lãng phí (%)', roundNumber(data.wasteRate || 0, 2)]);
   rows.push([]);
   
   // Consumption trend
@@ -131,9 +137,9 @@ exports.exportConsumptionStatistics = (data) => {
     data.consumptionTrend.forEach(item => {
       rows.push([
         item.date || 'N/A',
-        item.purchased || 0,
-        item.used || 0,
-        item.wasted || 0
+        roundNumber(item.purchased || 0),
+        roundNumber(item.used || 0),
+        roundNumber(item.wasted || 0)
       ]);
     });
     rows.push([]);
@@ -147,7 +153,7 @@ exports.exportConsumptionStatistics = (data) => {
       rows.push([
         item.foodItemName || 'N/A',
         item.timesUsed || 0,
-        item.totalQuantity || 0
+        roundNumber(item.totalQuantity || 0)
       ]);
     });
   }
@@ -169,7 +175,7 @@ exports.exportDashboardOverview = (data) => {
   rows.push(['Tổng số thực phẩm trong tủ lạnh', data.totalFridgeItems || 0]);
   rows.push(['Số thực phẩm sắp hết hạn', data.expiringSoon || 0]);
   rows.push(['Số danh sách mua sắm', data.shoppingListCount || 0]);
-  rows.push(['Giảm lãng phí (%)', data.wasteReduction || 0]);
+  rows.push(['Giảm lãng phí (%)', roundNumber(data.wasteReduction || 0, 2)]);
   rows.push([]);
   
   // Waste data by month
@@ -179,7 +185,7 @@ exports.exportDashboardOverview = (data) => {
     data.wasteData.forEach(item => {
       rows.push([
         item.month || 'N/A',
-        item.waste || 0
+        roundNumber(item.waste || 0)
       ]);
     });
     rows.push([]);
@@ -192,8 +198,8 @@ exports.exportDashboardOverview = (data) => {
     data.categoryData.forEach(item => {
       rows.push([
         item.name || 'Chưa phân loại',
-        item.value || 0,
-        item.percentage || 0
+        roundNumber(item.value || 0),
+        roundNumber(item.percentage || 0, 2)
       ]);
     });
   }
