@@ -1,0 +1,254 @@
+// Smile Home — Core Property Operation System
+// Prisma Schema — SQLite for rapid development
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Property {
+  id        String     @id @default(cuid())
+  name      String
+  address   String
+  type      String     @default("RESIDENTIAL") // RESIDENTIAL, COMMERCIAL, MIXED
+  tenantId  String     @default("default")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  buildings Building[]
+}
+
+model Building {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name       String
+  floors     Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  rooms      Room[]
+}
+
+model Room {
+  id         String   @id @default(cuid())
+  buildingId String
+  building   Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  number     String
+  type       String   @default("STUDIO") // STUDIO, ONE_BED, TWO_BED, THREE_BED, PENTHOUSE, COMMERCIAL
+  status     String   @default("VACANT") // VACANT, OCCUPIED, MAINTENANCE, RESERVED
+  price      Float    @default(0)
+  area       Float    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  contracts          Contract[]
+  interactions       Interaction[]
+  maintenanceTickets MaintenanceTicket[]
+  conversations      Conversation[]
+  meters             UtilityMeter[]
+}
+
+model Person {
+  id         String   @id @default(cuid())
+  name       String
+  email      String?
+  phone      String?
+  role       String   @default("LEAD") // TENANT, LEAD, OWNER, INVESTOR, STAFF
+  leadStatus String?  // NEW, CONTACTED, VIEWING_SCHEDULED, NEGOTIATING, CONVERTED, LOST
+  notes      String?
+  tenantId   String   @default("default")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  contracts          Contract[]
+  interactions       Interaction[]
+  maintenanceTickets MaintenanceTicket[]
+  messages           Message[]
+}
+
+model Interaction {
+  id         String   @id @default(cuid())
+  personId   String
+  person     Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  roomId     String?
+  room       Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  contractId String?
+  contract   Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  channel    String   @default("PHONE") // PHONE, EMAIL, CHAT, WALK_IN, SMS, LINE
+  direction  String   @default("INBOUND") // INBOUND, OUTBOUND, INTERNAL
+  subject    String
+  content    String
+  tags       String   @default("") // comma-separated for SQLite
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Conversation {
+  id         String   @id @default(cuid())
+  roomId     String?
+  room       Room?    @relation(fields: [roomId], references: [id])
+  status     String   @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  messages   Message[]
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String?
+  sender         Person?      @relation(fields: [senderId], references: [id])
+  role           String       @default("TENANT") // TENANT, STAFF, AI
+  content        String
+  
+  // HITL Fields
+  aiGenerated    Boolean      @default(false)
+  aiConfidence   Float?
+  aiExplanation  String?
+  status         String       @default("APPROVED") // PENDING, APPROVED, REJECTED, EDITED
+  
+  createdAt      DateTime     @default(now())
+}
+
+model Contract {
+  id          String   @id @default(cuid())
+  roomId      String
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  personId    String
+  person      Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+  type        String   @default("RENTAL") // RENTAL, SALE, MANAGEMENT, LEASE_EXTEND, SHORT_TERM
+  status      String   @default("DRAFT") // DRAFT, ACTIVE, EXPIRED, TERMINATED
+  startDate   DateTime
+  endDate     DateTime
+  monthlyRent Float    @default(0)
+  deposit     Float    @default(0)
+  productName String?
+  productArea String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoices     Invoice[]
+  interactions Interaction[]
+  documents    ContractDocument[]
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  contractId    String
+  contract      Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  invoiceNumber String   @unique
+  status        String   @default("DRAFT") // DRAFT, PENDING, PAID, OVERDUE, CANCELLED
+  amount        Float
+  dueDate       DateTime
+  issuedDate    DateTime @default(now())
+  
+  // HITL Fields
+  aiGenerated   Boolean  @default(false)
+  aiConfidence  Float?
+  aiExplanation String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  receipts Receipt[]
+}
+
+model Receipt {
+  id        String   @id @default(cuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount    Float
+  method    String   @default("TRANSFER") // CASH, TRANSFER, CREDIT_CARD, CHECK
+  paidDate  DateTime @default(now())
+  reference String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MaintenanceTicket {
+  id           String   @id @default(cuid())
+  roomId       String
+  room         Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  reportedById String
+  reportedBy   Person   @relation(fields: [reportedById], references: [id], onDelete: Cascade)
+  title        String
+  description  String
+  priority     String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status       String   @default("DRAFT") // DRAFT, OPEN, ASSIGNED, IN_PROGRESS, COMPLETED, CONFIRMED, CLOSED
+  
+  // HITL Fields
+  aiGenerated   Boolean  @default(false)
+  aiConfidence  Float?
+  aiExplanation String?
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model UtilityMeter {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  type      String   @default("ELECTRICITY") // ELECTRICITY, WATER
+  number    String?  // Meter serial number
+  readings  MeterReading[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MeterReading {
+  id            String   @id @default(cuid())
+  meterId       String
+  meter         UtilityMeter @relation(fields: [meterId], references: [id], onDelete: Cascade)
+  value         Float
+  readingDate   DateTime @default(now())
+  imageUrl      String?
+  
+  // HITL Fields
+  aiGenerated   Boolean  @default(true) // Usually from OCR
+  aiConfidence  Float?
+  aiExplanation String?
+  status        String   @default("DRAFT") // DRAFT, APPROVED, REJECTED
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AIAgent {
+  id           String   @id @default(cuid())
+  role         String   @unique // TENANT_SUPPORT, ACCOUNTING, MAINTENANCE, etc.
+  systemPrompt String
+  toolConfig   String?  // JSON string of allowed tools
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  entityType  String   // MaintenanceTicket, Invoice, MeterReading, etc.
+  entityId    String
+  action      String   // CREATE, UPDATE, APPROVE, REJECT, OVERRIDE
+  performedBy String   // User ID or "SYSTEM_AI"
+  oldValue    String?  // JSON snapshot
+  newValue    String?  // JSON snapshot
+  note        String?
+  timestamp   DateTime @default(now())
+}
+
+model ContractDocument {
+  id               String   @id @default(cuid())
+  contractId       String?
+  contract         Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  fileUrl          String
+  originalName     String
+  fileSize         Int
+  mimeType         String
+  documentType     String   @default("CONTRACT") // CONTRACT, PRODUCT_DETAIL
+  approvalStatus   String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
